@@ -1,5 +1,5 @@
 .PHONY: help build test test-race vet fmt demo worker dashboard mcp clean \
-	sam-validate sam-build sam-deploy sam-outputs build-WorkerFunction build-WebhookFunction
+	sam-validate sam-build sam-deploy sam-outputs build-WorkerFunction build-WebhookFunction build-DashboardFunction
 
 BIN := bin
 DATA ?= .icr
@@ -62,6 +62,10 @@ sam-outputs:
 build-WorkerFunction:
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags lambda.norpc -trimpath -ldflags="-s -w" -o $(ARTIFACTS_DIR)/bootstrap ./cmd/lambda/worker
 	mkdir -p $(ARTIFACTS_DIR)/config && cp config/rivergate.yaml $(ARTIFACTS_DIR)/config/
+
+build-DashboardFunction:
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags lambda.norpc -trimpath -ldflags="-s -w" -o $(ARTIFACTS_DIR)/bootstrap ./cmd/lambda/dashboard
+	mkdir -p $(ARTIFACTS_DIR)/config $(ARTIFACTS_DIR)/demo/tickets && cp config/rivergate.yaml $(ARTIFACTS_DIR)/config/ && cp demo/tickets/*.json $(ARTIFACTS_DIR)/demo/tickets/
 
 build-WebhookFunction:
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags lambda.norpc -trimpath -ldflags="-s -w" -o $(ARTIFACTS_DIR)/bootstrap ./cmd/lambda/webhook

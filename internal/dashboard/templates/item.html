@@ -1,8 +1,9 @@
-{{template "head" .Company}}
+{{template "head" .Page}}
 {{if .Flash}}<p class="panel flash">{{.Flash}}</p>{{end}}
 {{if .Error}}<p class="panel err">{{.Error}}</p>{{end}}
+{{if eq .Item.Status "received"}}<p class="panel banner"><span class="spinner"></span> Classifying… this page refreshes automatically (usually a few seconds).</p>{{end}}
 {{with .Item}}
-<p><a href="/">← back to queue</a></p>
+<p><a href="{{$.Page.Base}}/">← back to queue</a></p>
 <h2 style="margin-top:0">{{.ID}} · {{.Ticket.Subject}}</h2>
 <p class="muted">Status <b>{{.Status}}</b> · queue <b>{{if .Queue}}{{.Queue}}{{else}}—{{end}}</b>{{if .NeedsReview}} · <span class="flag">needs human review</span>{{end}}</p>
 
@@ -10,7 +11,7 @@
   <div class="panel">
     <h2 style="margin-top:0">Ticket</h2>
     <dl>
-      <dt>From</dt><dd>{{.Ticket.CustomerName}} &lt;{{.Ticket.CustomerEmail}}&gt;</dd>
+      <dt>From</dt><dd>{{.Ticket.CustomerName}}{{with .Ticket.CustomerEmail}} &lt;{{.}}&gt;{{end}}</dd>
       <dt>Company</dt><dd>{{.Ticket.Company}}</dd>
       <dt>Channel</dt><dd>{{.Ticket.Channel}} (via {{.Ticket.Source}})</dd>
       <dt>Received</dt><dd>{{when .Ticket.ReceivedAt}}</dd>
@@ -50,14 +51,14 @@
 {{if .Item.Classification}}
 <h2>Decide</h2>
 <div class="grid2">
-  <form class="panel" method="post" action="/items/{{.Item.ID}}/approve">
+  <form class="panel" method="post" action="{{$.Page.Base}}/items/{{.Item.ID}}/approve">
     <b>Approve the model's classification</b>
     <span class="muted">Routes it as human-verified using the normal rules.</span>
     <label>Reviewer<input name="reviewer" value="{{.Reviewer}}" required></label>
     <label>Note (optional)<input name="note" placeholder="Looks right"></label>
     <button type="submit">Approve</button>
   </form>
-  <form class="panel" method="post" action="/items/{{.Item.ID}}/override">
+  <form class="panel" method="post" action="{{$.Page.Base}}/items/{{.Item.ID}}/override">
     <b>Override</b>
     <span class="muted">Correct the category and/or priority, then route.</span>
     {{$c := .Item.Classification}}

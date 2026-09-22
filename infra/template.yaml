@@ -31,6 +31,14 @@ Parameters:
     Type: String
     Default: rivergate-icr/webhook-shared-secret
     Description: SSM SecureString parameter name (WITHOUT the leading slash) holding the shared secret webhook callers must send in the X-Rivergate-Token header. Create it before deploying.
+  DashboardPasswordParam:
+    Type: String
+    Default: rivergate-icr/dashboard-password
+    Description: SSM SecureString parameter name (WITHOUT the leading slash) holding the shared password for the hosted demo UI. Create it before deploying.
+  DashboardAllowedOrigins:
+    Type: String
+    Default: https://marian.online,https://www.marian.online
+    Description: Comma-separated site origins allowed to post forms to the UI (the site that proxies it).
 
 Globals:
   Function:
@@ -208,6 +216,51 @@ Resources:
                 # Cross-region inference profiles route to the model in several regions.
                 - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/${BedrockFoundationModelId}
 
+  # ---------------------------------------------------------------- demo UI
+  DashboardApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 5
+
+  DashboardFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+    Properties:
+      Description: Hosted demo UI - submit tickets, see results, review queue. Password-protected.
+      CodeUri: ../
+      Timeout: 15
+      Environment:
+        Variables:
+          ICR_DASHBOARD_PASSWORD_PARAM: !Sub /${DashboardPasswordParam}
+          # Must match the event paths below and the marian.online rewrite.
+          ICR_DASHBOARD_BASE_PATH: /demos/rivergate
+          ICR_DASHBOARD_ALLOWED_ORIGINS: !Ref DashboardAllowedOrigins
+          ICR_EXAMPLES_DIR: demo/tickets
+          ICR_DASHBOARD_SITE_URL: /demos   # "About this demo" link back to marian.online
+      Events:
+        Root:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref DashboardApi
+            Path: /demos/rivergate
+            Method: ANY
+        Pages:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref DashboardApi
+            Path: /demos/rivergate/{proxy+}
+            Method: ANY
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ItemsTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt TicketQueue.QueueName
+        - SSMParameterReadPolicy:
+            ParameterName: !Ref DashboardPasswordParam
+
 Outputs:
   WebhookUrl:
     Description: POST ticket payloads here (same JSON shape as demo/tickets/*.json).
@@ -221,3 +274,9 @@ Outputs:
     Value: !Ref TicketDLQ
   ItemsTableName:
     Value: !Ref ItemsTable
+  DashboardUrl:
+    Description: Hosted demo UI (password-protected). marian.online proxies /demos/rivergate/* here.
+    Value: !Sub https://${DashboardApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/demos/rivergate/
+  DashboardOrigin:
+    Description: Origin to put in marian.online's vercel.json rewrite destination.
+    Value: !Sub https://${DashboardApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}

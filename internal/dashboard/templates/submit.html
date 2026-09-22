@@ -1,0 +1,48 @@
+{{template "head" .Page}}
+{{if .Error}}<p class="panel err">{{.Error}}</p>{{end}}
+<h2 style="margin-top:0">Submit a ticket</h2>
+<p class="muted">Send a support ticket through the real pipeline: it is normalized, queued, classified by the model, and routed by Rivergate's rules. Use synthetic data only.</p>
+
+<form class="panel" method="get" action="{{$.Page.Base}}/submit" style="margin-bottom:14px">
+  <label>Start from an example ticket
+    <select name="example" onchange="this.form.submit()">
+      <option value="">— choose an example —</option>
+      {{range .Examples}}<option value="{{.Name}}"{{if eq .Name $.Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+    </select>
+  </label>
+  <noscript><button type="submit" class="secondary">Load</button></noscript>
+</form>
+
+<div class="grid2">
+  <form class="panel" method="post" action="{{$.Page.Base}}/submit">
+    <b>Write a ticket</b>
+    <input type="hidden" name="mode" value="form">
+    <div class="row">
+      <label>Channel
+        <select name="channel">
+          <option value="webform">Web form</option>
+          <option value="email">Email</option>
+          <option value="chat">Chat</option>
+        </select>
+      </label>
+      <label>Company<input name="company" placeholder="Fictional Co." maxlength="120"></label>
+    </div>
+    <div class="row">
+      <label>Customer name<input name="name" placeholder="Alex Example" maxlength="120"></label>
+      <label>Customer email<input name="email" type="email" placeholder="alex@company.example" maxlength="200"></label>
+    </div>
+    <label>Subject<input name="subject" maxlength="200" placeholder="All boards return 503"></label>
+    <label>Message<textarea name="message" required maxlength="8000" style="min-height:160px;font:inherit" placeholder="Describe the issue as a customer would…"></textarea></label>
+    <button type="submit">Submit ticket</button>
+  </form>
+
+  <form class="panel" method="post" action="{{$.Page.Base}}/submit" enctype="multipart/form-data">
+    <b>…or paste / upload ticket JSON</b>
+    <span class="muted">Same shape as <code>demo/tickets/*.json</code> (email, chat or web form).</span>
+    <input type="hidden" name="mode" value="json">
+    <label>Ticket JSON<textarea name="json" spellcheck="false">{{.JSON}}</textarea></label>
+    <label>…or upload a .json file<input type="file" name="file" accept=".json,application/json"></label>
+    <button type="submit">Submit JSON</button>
+  </form>
+</div>
+{{template "foot"}}

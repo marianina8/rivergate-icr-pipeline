@@ -34,7 +34,8 @@ pipeline:
 | 2 | Worker + queue against local stand-ins for S3 (drop-zone folder), API Gateway (webhook on :8081) and SQS (directory queue) | ✅ done |
 | 3 | Router rules engine + human-review dashboard (approve/override) | ✅ done |
 | 4 | MCP server: read tools always on, write tools opt-in and scoped | ✅ done |
-| 5 | Real AWS via SAM: Lambda handlers, DynamoDB store, SQS queue, Bedrock classifier | 🟡 code done and unit-tested with fake AWS clients; **ready for first `sam deploy`**. See [infra/README.md](infra/README.md) |
+| 5 | Real AWS via SAM: Lambda handlers, DynamoDB store, SQS queue, Bedrock classifier | ✅ deployed (us-west-2). See [infra/README.md](infra/README.md) |
+| + | Hosted, password-protected demo UI: submit a ticket, watch it get classified and routed, review the queue | ✅ code done; served at `marian.online/demos/rivergate/` |
 
 Locally, everything runs with **zero AWS calls**: the default classifier is a
 deterministic keyword mock that stands in for Bedrock. Against AWS, the same
@@ -47,7 +48,7 @@ Requires Go 1.24+.
 ```sh
 make test            # all unit tests; no network, no AWS
 make demo            # reset .icr/, ingest demo/tickets, show routing + outbox + review queue
-make dashboard       # http://127.0.0.1:8080 — review queue, approve / override
+make dashboard       # http://127.0.0.1:8080 — submit tickets, see results, review queue
 ```
 
 Run the pipeline with its local entry points:
@@ -175,7 +176,8 @@ pipeline.
 ```
 cmd/cli          icr binary: ingest, classify, route, status, review, outbox, mcp
 cmd/worker       queue consumer + local drop zone + local webhook receiver
-cmd/dashboard    human review queue web UI (html/template, no JS)
+cmd/dashboard    local web UI (submit, results, review queue); UI code in internal/dashboard
+cmd/lambda/dashboard  the same UI hosted on Lambda, behind a shared password
 cmd/lambda/worker   SQS-triggered Lambda (phase 5)
 cmd/lambda/webhook  API Gateway webhook Lambda (phase 5)
 internal/classify  Classifier interface, prompt templates, Mock, Bedrock (Converse API)
@@ -186,6 +188,8 @@ internal/ingest    channel normalization + local SQS/S3/API Gateway stand-ins
 internal/pipeline  the shared lifecycle: normalize → classify → store → route → act
 internal/config    loads + validates config/rivergate.yaml
 internal/awsapp    AWS wiring + Lambda handlers (DynamoDB, SQS, S3, SSM, Bedrock)
+internal/dashboard web UI: submit page, results, review queue, password login
+internal/httplambda  runs a net/http handler behind API Gateway HTTP APIs
 config/          the per-prospect inputs (prompt, taxonomy, rules)
 infra/           SAM template, samconfig, sample Lambda events, deploy runbook
 demo/            synthetic tickets, demo scripts, MCP client config example

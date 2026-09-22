@@ -1,4 +1,4 @@
-{{template "head" .Company}}
+{{template "head" .Page}}
 {{if .Flash}}<p class="panel flash">{{.Flash}}</p>{{end}}
 
 <div class="stats">
@@ -15,7 +15,7 @@
   <tr><th>ID</th><th>Subject</th><th>Model says</th><th>Conf.</th><th>Why it's here</th></tr>
   {{range .Review}}
   <tr>
-    <td class="id"><a href="/items/{{.ID}}">{{.ID}}</a></td>
+    <td class="id"><a href="{{$.Page.Base}}/items/{{.ID}}">{{.ID}}</a></td>
     <td>{{.Ticket.Subject}}<br><span class="muted">{{.Ticket.Company}} · {{.Ticket.Channel}}</span></td>
     <td>{{with .Classification}}<span class="chip">{{.Category}}</span> <span class="chip">{{.Priority}}</span>{{end}}</td>
     <td>{{with .Classification}}<span class="conf {{confClass .Confidence}}">{{pct .Confidence}}</span>{{end}}</td>
@@ -33,7 +33,7 @@
   <tr><th>ID</th><th>Subject</th><th>Category</th><th>Priority</th><th>Conf.</th><th>Status</th><th>Queue</th></tr>
   {{range .All}}
   <tr>
-    <td class="id"><a href="/items/{{.ID}}">{{.ID}}</a></td>
+    <td class="id"><a href="{{$.Page.Base}}/items/{{.ID}}">{{.ID}}</a></td>
     <td>{{.Ticket.Subject}}{{if .NeedsReview}} <span class="flag">· review</span>{{end}}</td>
     {{with .Classification}}<td><span class="chip">{{.Category}}</span></td><td>{{.Priority}}</td><td><span class="conf {{confClass .Confidence}}">{{pct .Confidence}}</span></td>{{else}}<td>—</td><td>—</td><td>—</td>{{end}}
     <td>{{.Status}}</td>

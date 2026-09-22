@@ -1,0 +1,10 @@
+{{template "head" .Page}}
+<form class="panel login" method="post" action="{{$.Page.Base}}/login">
+  <b>Sign in to the demo</b>
+  <span class="muted">Enter the access password you were given.</span>
+  {{if .Error}}<p class="err panel" style="margin:0">{{.Error}}</p>{{end}}
+  <input type="hidden" name="next" value="{{.Next}}">
+  <label>Password<input type="password" name="password" autofocus required autocomplete="current-password"></label>
+  <button type="submit">Sign in</button>
+</form>
+{{template "foot"}}

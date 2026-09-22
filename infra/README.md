@@ -12,8 +12,9 @@ phases 1–4 maps to a real service:
 | `.icr/items/*.json` (`store.File`)      | `ItemsTable` (DynamoDB, on-demand, PITR)                 | `store.Dynamo` |
 | `classify.Mock`                         | Bedrock Converse, IAM scoped to one model                | `classify.Bedrock` |
 | `.icr/outbox/*.jsonl`                   | structured `icr_action` log lines in CloudWatch + audit trail | `router.LogSink` |
+| `cmd/dashboard` on 127.0.0.1            | `DashboardApi` (HTTP API) + `DashboardFunction`, password-protected, served at `/demos/rivergate/` | `cmd/lambda/dashboard`, `internal/dashboard`, `internal/httplambda` |
 
-The dashboard and CLI stay local and work against the deployed table with
+The CLI and the local dashboard also work against the deployed table with
 `-store dynamo`.
 
 ## Before the first deploy (one time)
@@ -27,6 +28,10 @@ The dashboard and CLI stay local and work against the deployed table with
   call in us-west-2.
 - The webhook secret exists:
   `aws ssm put-parameter --name /rivergate-icr/webhook-shared-secret --type SecureString --value "$(openssl rand -hex 32)" --profile demos-admin --region us-west-2`
+- The demo UI password exists (this is what you share with prospects):
+  `aws ssm put-parameter --name /rivergate-icr/dashboard-password --type SecureString --value 'choose-a-demo-password' --profile demos-admin --region us-west-2`
+  To change it later, re-run with `--overwrite`; the UI picks it up on its next
+  cold start (or redeploy), and everyone is signed out.
 
 ## Deploy
 
@@ -43,6 +48,23 @@ make sam-outputs   # WebhookUrl, DropZoneBucketName, TicketQueueUrl, ItemsTableN
 
 `sam deploy --guided` shows a changeset of what it will create and asks before
 applying it (`confirm_changeset = true`).
+
+## Hosted demo UI
+
+`make sam-outputs` prints `DashboardUrl` (the direct API Gateway URL) and
+`DashboardOrigin`. marian.online proxies `https://marian.online/demos/rivergate/*`
+to it with a rewrite in its `vercel.json`, so prospects use your domain:
+
+```json
+{ "source": "/demos/rivergate/:path*", "destination": "<DashboardOrigin>/demos/rivergate/:path*" }
+```
+
+Every page requires the shared password (SSM `/rivergate-icr/dashboard-password`).
+Sessions are signed cookies valid for 12 hours. Submitted tickets go through the
+real pipeline (SQS -> worker Lambda -> Bedrock); the result page refreshes itself
+until the classification lands, usually within a few seconds. Form posts are only
+accepted from the dashboard's own origin or `DashboardAllowedOrigins`
+(marian.online by default).
 
 ## Try it against the deployed stack
 
