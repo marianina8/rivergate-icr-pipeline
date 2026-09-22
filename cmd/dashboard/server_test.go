@@ -30,7 +30,7 @@ func setup(t *testing.T) (*server, map[string]string) {
 	if _, err := p.RunOnce(context.Background(), 20); err != nil {
 		t.Fatal(err)
 	}
-	s, err := newServer(p.Service, pipeline.OutboxDir(data), "tester")
+	s, err := newServer(p.Service, fileActions(pipeline.OutboxDir(data)), "tester")
 	if err != nil {
 		t.Fatal(err)
 	}

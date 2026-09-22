@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"errors"
 	"fmt"
@@ -21,13 +22,29 @@ var templateFS embed.FS
 // server is the human-review dashboard: the review queue, item detail with
 // the model's classification and reasoning, and approve/override controls.
 type server struct {
-	svc       *pipeline.Service
-	outboxDir string
-	reviewer  string // default reviewer name pre-filled in forms
-	tpl       *template.Template
+	svc      *pipeline.Service
+	actions  func(ctx context.Context) ([]router.OutboxEntry, error)
+	reviewer string // default reviewer name pre-filled in forms
+	tpl      *template.Template
 }
 
-func newServer(svc *pipeline.Service, outboxDir, reviewer string) (*server, error) {
+// fileActions reads the local outbox files (local mode).
+func fileActions(dir string) func(context.Context) ([]router.OutboxEntry, error) {
+	return func(context.Context) ([]router.OutboxEntry, error) { return router.ReadOutbox(dir) }
+}
+
+// auditActions rebuilds the action feed from item audit trails (DynamoDB mode).
+func auditActions(svc *pipeline.Service) func(context.Context) ([]router.OutboxEntry, error) {
+	return func(ctx context.Context) ([]router.OutboxEntry, error) {
+		items, err := svc.List(ctx, store.Filter{})
+		if err != nil {
+			return nil, err
+		}
+		return pipeline.ActionsFromItems(items), nil
+	}
+}
+
+func newServer(svc *pipeline.Service, actions func(context.Context) ([]router.OutboxEntry, error), reviewer string) (*server, error) {
 	funcs := template.FuncMap{
 		"pct":  func(f float64) string { return fmt.Sprintf("%.0f%%", f*100) },
 		"when": func(t time.Time) string { return t.Local().Format("Jan 2 15:04:05") },
@@ -47,7 +64,7 @@ func newServer(svc *pipeline.Service, outboxDir, reviewer string) (*server, erro
 	if err != nil {
 		return nil, err
 	}
-	return &server{svc: svc, outboxDir: outboxDir, reviewer: reviewer, tpl: tpl}, nil
+	return &server{svc: svc, actions: actions, reviewer: reviewer, tpl: tpl}, nil
 }
 
 func (s *server) routes() http.Handler {
@@ -86,7 +103,7 @@ func (s *server) index(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	ob, err := router.ReadOutbox(s.outboxDir)
+	ob, err := s.actions(ctx)
 	if err != nil {
 		s.fail(w, err)
 		return

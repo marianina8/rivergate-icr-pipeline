@@ -1,0 +1,13 @@
+{
+  "WorkerFunction": {
+    "ICR_ITEMS_TABLE": "REPLACE-with-ItemsTableName",
+    "ICR_CLASSIFIER": "bedrock",
+    "ICR_CONFIG": "config/rivergate.yaml"
+  },
+  "WebhookFunction": {
+    "ICR_ITEMS_TABLE": "REPLACE-with-ItemsTableName",
+    "ICR_QUEUE_URL": "REPLACE-with-TicketQueueUrl",
+    "ICR_WEBHOOK_TOKEN": "local-dev-token",
+    "ICR_CONFIG": "config/rivergate.yaml"
+  }
+}

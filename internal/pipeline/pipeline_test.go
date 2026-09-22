@@ -277,3 +277,23 @@ func TestRouteRequiresClassification(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestActionsFromItemsMatchesOutbox(t *testing.T) {
+	h := newHarness(t, nil)
+	h.ingestAll(t)
+	items, _ := h.svc.List(context.Background(), store.Filter{})
+	derived := pipeline.ActionsFromItems(items)
+	files, _ := router.ReadOutbox(h.outbox)
+	if len(derived) != len(files) || len(derived) != 6 {
+		t.Fatalf("derived %d actions, outbox has %d", len(derived), len(files))
+	}
+	refs := map[string]bool{}
+	for _, e := range files {
+		refs[e.Kind+"|"+e.Ref] = true
+	}
+	for _, e := range derived {
+		if !refs[e.Kind+"|"+e.Ref] || e.Request.Reason == "" || e.Detail == "" {
+			t.Errorf("derived entry does not match outbox: %+v", e)
+		}
+	}
+}

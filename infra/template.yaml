@@ -5,9 +5,9 @@ Description: >
   tickets. S3 drop zone + API Gateway webhook -> SQS -> Go worker Lambda ->
   Bedrock classification -> DynamoDB state/audit trail -> routing actions.
 
-  STATUS: authored for phase 5, NOT yet validated, built or deployed. The two
-  Lambda entry points it builds (cmd/lambda/worker, cmd/lambda/webhook) and the
-  DynamoDB/SQS adapters are phase 5 work - see infra/README.md.
+  Lambda entry points: cmd/lambda/worker and cmd/lambda/webhook (built by the
+  Makefile targets build-WorkerFunction / build-WebhookFunction).
+  Deploy runbook: infra/README.md.
 
 Parameters:
   Stage:
@@ -30,7 +30,7 @@ Parameters:
   WebhookSharedSecretParam:
     Type: String
     Default: rivergate-icr/webhook-shared-secret
-    Description: SSM SecureString parameter name (WITHOUT the leading slash) holding the shared secret webhook callers must send. Create it before deploying.
+    Description: SSM SecureString parameter name (WITHOUT the leading slash) holding the shared secret webhook callers must send in the X-Rivergate-Token header. Create it before deploying.
 
 Globals:
   Function:
@@ -183,9 +183,6 @@ Resources:
       Description: SQS consumer - normalize -> classify (Bedrock) -> write state (DynamoDB) -> route.
       CodeUri: ../
       Timeout: 30
-      Environment:
-        Variables:
-          ICR_DROPZONE_BUCKET: !Sub ${AWS::StackName}-dropzone-${AWS::AccountId}
       Events:
         Tickets:
           Type: SQS

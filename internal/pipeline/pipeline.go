@@ -58,6 +58,24 @@ func (s *Service) log() *slog.Logger {
 // Re-ingesting an identical ticket is a no-op (duplicate=true).
 // It satisfies ingest.Sink so the drop zone and webhook can call it directly.
 func (s *Service) Ingest(ctx context.Context, payload []byte, source string) (ingest.Ticket, bool, error) {
+	if s.Queue == nil {
+		return ingest.Ticket{}, false, errors.New("no queue configured")
+	}
+	t, dup, err := s.Accept(ctx, payload, source)
+	if err != nil || dup {
+		return t, dup, err
+	}
+	if err := s.Queue.Send(ctx, t); err != nil {
+		return t, false, fmt.Errorf("enqueue: %w", err)
+	}
+	s.log().Info("ingested", "id", t.ID, "channel", t.Channel, "source", source)
+	return t, false, nil
+}
+
+// Accept normalizes a raw payload and records it as received, without
+// enqueueing it. The AWS worker uses this for S3 drop-zone objects, whose
+// event notification already *is* the queue message.
+func (s *Service) Accept(ctx context.Context, payload []byte, source string) (ingest.Ticket, bool, error) {
 	t, err := ingest.Normalize(payload, source, s.now())
 	if err != nil {
 		return ingest.Ticket{}, false, err
@@ -69,17 +87,9 @@ func (s *Service) Ingest(ctx context.Context, payload []byte, source string) (in
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return t, false, err
 	}
-	it := newItem(t, s.now(), source)
-	if err := s.Store.Put(ctx, it); err != nil {
+	if err := s.Store.Put(ctx, newItem(t, s.now(), source)); err != nil {
 		return t, false, err
 	}
-	if s.Queue == nil {
-		return t, false, errors.New("no queue configured")
-	}
-	if err := s.Queue.Send(ctx, t); err != nil {
-		return t, false, fmt.Errorf("enqueue: %w", err)
-	}
-	s.log().Info("ingested", "id", t.ID, "channel", t.Channel, "source", source)
 	return t, false, nil
 }
 
@@ -259,7 +269,7 @@ func (s *Service) routeLocked(ctx context.Context, it store.Item, actor string) 
 		it.ExecutedActions = append(it.ExecutedActions, key)
 		// Every automatic action is logged with the reasoning that triggered it.
 		ad := classificationData(c)
-		ad["action"], ad["target"], ad["ref"], ad["rule"], ad["reason"] = a.Type, a.Target, res.Ref, d.Rule, d.Reason
+		ad["action"], ad["target"], ad["ref"], ad["rule"], ad["reason"], ad["detail"] = a.Type, a.Target, res.Ref, d.Rule, d.Reason, res.Detail
 		it.AddEvent(s.now(), "action", actor, fmt.Sprintf("%s -> %s: %s", a.Type, orDash(a.Target), res.Detail), ad)
 	}
 	if err := s.Store.Put(ctx, it); err != nil {

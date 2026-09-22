@@ -1,9 +1,11 @@
 # AWS SAM CLI config for the Rivergate ICR pipeline. Run sam commands from
-# this directory (infra/). NOT yet used: phase 5 (real AWS) is pending.
+# this directory (infra/), or use `make sam-build` / `make sam-deploy`.
 version = 0.1
 
 [default.global.parameters]
 stack_name = "rivergate-icr-pipeline"
+profile = "demos-admin"   # the IAM Identity Center profile from `aws configure sso`
+region = "us-west-2"
 
 [default.build.parameters]
 cached = true
@@ -17,7 +19,6 @@ capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 fail_on_empty_changeset = false
 resolve_s3 = true
-region = "us-west-2"
 s3_prefix = "rivergate-icr-pipeline"
 parameter_overrides = "Stage=\"demo\" ClassifierProvider=\"bedrock\""
 tags = "app=\"rivergate-icr\" data=\"synthetic\""

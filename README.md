@@ -34,12 +34,11 @@ pipeline:
 | 2 | Worker + queue against local stand-ins for S3 (drop-zone folder), API Gateway (webhook on :8081) and SQS (directory queue) | ✅ done |
 | 3 | Router rules engine + human-review dashboard (approve/override) | ✅ done |
 | 4 | MCP server: read tools always on, write tools opt-in and scoped | ✅ done |
-| 5 | Real AWS via SAM | ⏳ `infra/template.yaml` written and lint-checked offline; **not built or deployed**. See [infra/README.md](infra/README.md) |
+| 5 | Real AWS via SAM: Lambda handlers, DynamoDB store, SQS queue, Bedrock classifier | 🟡 code done and unit-tested with fake AWS clients; **ready for first `sam deploy`**. See [infra/README.md](infra/README.md) |
 
-Phases 1–4 run with **zero AWS calls**. The default classifier is a
-deterministic keyword mock that stands in for Bedrock. The Bedrock classifier
-compiles and is tested against a fake client, but it has not been run against
-live Bedrock yet.
+Locally, everything runs with **zero AWS calls**: the default classifier is a
+deterministic keyword mock that stands in for Bedrock. Against AWS, the same
+pipeline uses Bedrock (Claude Haiku 4.5), DynamoDB and SQS.
 
 ## Quick start
 
@@ -60,6 +59,17 @@ cp demo/tickets/03-chat-double-charge.json .icr/dropzone/incoming/   # "S3" drop
 ./bin/icr status
 ```
 
+## Deploy to AWS
+
+```sh
+aws sso login --profile demos-admin
+make sam-validate && make sam-build
+cd infra && sam deploy --guided     # first time; afterwards: make sam-deploy
+```
+
+Full runbook, including how to send tickets to the deployed stack and point the
+CLI and dashboard at it: [infra/README.md](infra/README.md).
+
 ## CLI
 
 ```
@@ -76,6 +86,11 @@ icr mcp [-allow-write tools]            serve the pipeline as MCP tools on stdio
 Global flags: `-config` (default `config/rivergate.yaml`), `-data` (default
 `.icr`), `-classifier mock|bedrock`, `-json`. Each also has an environment
 variable: `ICR_CONFIG`, `ICR_DATA_DIR`, `ICR_CLASSIFIER`.
+
+Against the deployed stack, add `-store dynamo -table <ItemsTableName>
+-queue-url <TicketQueueUrl> -profile demos-admin` (or set `ICR_STORE`,
+`ICR_ITEMS_TABLE`, `ICR_QUEUE_URL`, `AWS_PROFILE`). The dashboard takes the same
+`-store dynamo -table … -profile …` flags.
 
 ## MCP (agent layer)
 
@@ -161,6 +176,8 @@ pipeline.
 cmd/cli          icr binary: ingest, classify, route, status, review, outbox, mcp
 cmd/worker       queue consumer + local drop zone + local webhook receiver
 cmd/dashboard    human review queue web UI (html/template, no JS)
+cmd/lambda/worker   SQS-triggered Lambda (phase 5)
+cmd/lambda/webhook  API Gateway webhook Lambda (phase 5)
 internal/classify  Classifier interface, prompt templates, Mock, Bedrock (Converse API)
 internal/store     item state + audit trail: Memory, File (DynamoDB in phase 5)
 internal/router    rules engine + action sink (stub outbox)
@@ -168,12 +185,13 @@ internal/mcp       MCP stdio server over the pipeline
 internal/ingest    channel normalization + local SQS/S3/API Gateway stand-ins
 internal/pipeline  the shared lifecycle: normalize → classify → store → route → act
 internal/config    loads + validates config/rivergate.yaml
+internal/awsapp    AWS wiring + Lambda handlers (DynamoDB, SQS, S3, SSM, Bedrock)
 config/          the per-prospect inputs (prompt, taxonomy, rules)
-infra/           SAM template + samconfig (phase 5)
+infra/           SAM template, samconfig, sample Lambda events, deploy runbook
 demo/            synthetic tickets, demo scripts, MCP client config example
 ```
 
-`internal/ingest`, `internal/pipeline` and `internal/config` go beyond the
-reference layout. They hold the ingestion stand-ins, the lifecycle shared by
+`internal/ingest`, `internal/pipeline`, `internal/config` and `internal/awsapp`
+go beyond the reference layout. They hold the ingestion stand-ins, the lifecycle shared by
 the CLI, worker, dashboard and MCP server, and config loading, so none of that
 is duplicated across binaries.

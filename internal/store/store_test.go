@@ -6,13 +6,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
 	"github.com/marianina8/rivergate-icr-pipeline/internal/classify"
 	"github.com/marianina8/rivergate-icr-pipeline/internal/ingest"
 	"github.com/marianina8/rivergate-icr-pipeline/internal/store"
 )
 
 // conformance runs the same behavioural checks against any Store. The phase 5
-// DynamoDB store should be added here too.
+// DynamoDB store runs it against an in-memory fake of the DynamoDB API.
 func conformance(t *testing.T, s store.Store) {
 	ctx := context.Background()
 	t0 := time.Date(2026, 9, 21, 10, 0, 0, 0, time.UTC)
@@ -82,5 +86,89 @@ func TestFileStoreRejectsPathTraversal(t *testing.T) {
 	}
 	if err := s.Put(context.Background(), store.Item{ID: "../x"}); err == nil {
 		t.Error("put with traversal id should fail")
+	}
+}
+
+// fakeDynamo is an in-memory stand-in for the DynamoDB API: enough of
+// GetItem/PutItem/Query/Scan (with one-item pages, to exercise pagination)
+// for the conformance suite. No AWS calls.
+type fakeDynamo struct {
+	items map[string]map[string]types.AttributeValue
+	order []string
+}
+
+func newFakeDynamo() *fakeDynamo {
+	return &fakeDynamo{items: map[string]map[string]types.AttributeValue{}}
+}
+
+func (f *fakeDynamo) GetItem(_ context.Context, in *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
+	id := in.Key["id"].(*types.AttributeValueMemberS).Value
+	return &dynamodb.GetItemOutput{Item: f.items[id]}, nil
+}
+
+func (f *fakeDynamo) PutItem(_ context.Context, in *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
+	id := in.Item["id"].(*types.AttributeValueMemberS).Value
+	if q, ok := in.Item["queue"].(*types.AttributeValueMemberS); ok && q.Value == "" {
+		return nil, errors.New("ValidationException: empty string for index key")
+	}
+	if _, ok := f.items[id]; !ok {
+		f.order = append(f.order, id)
+	}
+	f.items[id] = in.Item
+	return &dynamodb.PutItemOutput{}, nil
+}
+
+func (f *fakeDynamo) page(match func(map[string]types.AttributeValue) bool, start map[string]types.AttributeValue) ([]map[string]types.AttributeValue, map[string]types.AttributeValue) {
+	begin := 0
+	if start != nil {
+		sid := start["id"].(*types.AttributeValueMemberS).Value
+		for i, id := range f.order {
+			if id == sid {
+				begin = i + 1
+			}
+		}
+	}
+	for i := begin; i < len(f.order); i++ {
+		av := f.items[f.order[i]]
+		if match(av) {
+			var next map[string]types.AttributeValue
+			if i < len(f.order)-1 {
+				next = map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: f.order[i]}}
+			}
+			return []map[string]types.AttributeValue{av}, next
+		}
+	}
+	return nil, nil
+}
+
+func (f *fakeDynamo) Query(_ context.Context, in *dynamodb.QueryInput, _ ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+	if aws.ToString(in.IndexName) != store.QueueIndex {
+		return nil, errors.New("unexpected index")
+	}
+	want := in.ExpressionAttributeValues[":q"].(*types.AttributeValueMemberS).Value
+	items, next := f.page(func(av map[string]types.AttributeValue) bool {
+		q, ok := av["queue"].(*types.AttributeValueMemberS)
+		return ok && q.Value == want
+	}, in.ExclusiveStartKey)
+	return &dynamodb.QueryOutput{Items: items, LastEvaluatedKey: next}, nil
+}
+
+func (f *fakeDynamo) Scan(_ context.Context, in *dynamodb.ScanInput, _ ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error) {
+	items, next := f.page(func(map[string]types.AttributeValue) bool { return true }, in.ExclusiveStartKey)
+	return &dynamodb.ScanOutput{Items: items, LastEvaluatedKey: next}, nil
+}
+
+func TestDynamoStore(t *testing.T) {
+	conformance(t, &store.Dynamo{Client: newFakeDynamo(), Table: "items"})
+}
+
+func TestDynamoStoreOmitsEmptyQueueKey(t *testing.T) {
+	fd := newFakeDynamo()
+	s := &store.Dynamo{Client: fd, Table: "items"}
+	if err := s.Put(context.Background(), store.Item{ID: "RG-1", Status: store.StatusReceived}); err != nil {
+		t.Fatalf("a received item (no queue yet) must be storable: %v", err)
+	}
+	if _, ok := fd.items["RG-1"]["queue"]; ok {
+		t.Error("empty queue must not be written as a GSI key")
 	}
 }

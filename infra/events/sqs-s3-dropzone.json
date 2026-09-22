@@ -1,0 +1,15 @@
+{
+  "Records": [
+    {
+      "messageId": "local-2",
+      "receiptHandle": "local",
+      "body": "{\"Records\": [{\"eventVersion\": \"2.1\", \"eventSource\": \"aws:s3\", \"awsRegion\": \"us-west-2\", \"eventName\": \"ObjectCreated:Put\", \"s3\": {\"bucket\": {\"name\": \"REPLACE-with-DropZoneBucketName\"}, \"object\": {\"key\": \"incoming/03-chat-double-charge.json\"}}}]}",
+      "attributes": {},
+      "messageAttributes": {},
+      "md5OfBody": "",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-west-2:000000000000:local-TicketQueue",
+      "awsRegion": "us-west-2"
+    }
+  ]
+}

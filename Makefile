@@ -1,5 +1,5 @@
 .PHONY: help build test test-race vet fmt demo worker dashboard mcp clean \
-	build-WorkerFunction build-WebhookFunction
+	sam-validate sam-build sam-deploy sam-outputs build-WorkerFunction build-WebhookFunction
 
 BIN := bin
 DATA ?= .icr
@@ -45,12 +45,24 @@ clean:
 	rm -rf $(BIN) $(DATA)
 
 # --- AWS SAM (phase 5) -------------------------------------------------------
+sam-validate:
+	cd infra && sam validate --lint
+
+sam-build:
+	cd infra && sam build
+
+sam-deploy: sam-build
+	cd infra && sam deploy
+
+sam-outputs:
+	aws cloudformation describe-stacks --stack-name rivergate-icr-pipeline --profile demos-admin --region us-west-2 \
+		--query "Stacks[0].Outputs[].[OutputKey,OutputValue]" --output table
+
 # Called by `sam build` (BuildMethod: makefile, CodeUri: repo root).
-# The ./cmd/lambda/* entry points are phase 5 work and do not exist yet.
 build-WorkerFunction:
-	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags lambda.norpc -trimpath -o $(ARTIFACTS_DIR)/bootstrap ./cmd/lambda/worker
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags lambda.norpc -trimpath -ldflags="-s -w" -o $(ARTIFACTS_DIR)/bootstrap ./cmd/lambda/worker
 	mkdir -p $(ARTIFACTS_DIR)/config && cp config/rivergate.yaml $(ARTIFACTS_DIR)/config/
 
 build-WebhookFunction:
-	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags lambda.norpc -trimpath -o $(ARTIFACTS_DIR)/bootstrap ./cmd/lambda/webhook
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags lambda.norpc -trimpath -ldflags="-s -w" -o $(ARTIFACTS_DIR)/bootstrap ./cmd/lambda/webhook
 	mkdir -p $(ARTIFACTS_DIR)/config && cp config/rivergate.yaml $(ARTIFACTS_DIR)/config/

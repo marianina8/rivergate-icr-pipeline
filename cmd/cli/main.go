@@ -20,6 +20,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/marianina8/rivergate-icr-pipeline/internal/awsapp"
 	"github.com/marianina8/rivergate-icr-pipeline/internal/ingest"
 	"github.com/marianina8/rivergate-icr-pipeline/internal/mcp"
 	"github.com/marianina8/rivergate-icr-pipeline/internal/pipeline"
@@ -49,6 +50,12 @@ Global flags:
   -data DIR          local data dir (env ICR_DATA_DIR, default .icr)
   -classifier NAME   mock | bedrock (env ICR_CLASSIFIER, default from config)
   -json              machine-readable output where supported
+
+Against the deployed AWS stack (phase 5):
+  -store dynamo      use DynamoDB + SQS instead of the local data dir (env ICR_STORE)
+  -table NAME        DynamoDB table: the ItemsTableName stack output (env ICR_ITEMS_TABLE)
+  -queue-url URL     SQS queue for ingest: the TicketQueueUrl output (env ICR_QUEUE_URL)
+  -profile NAME      AWS CLI profile, e.g. demos-admin (env AWS_PROFILE)
 `
 
 func main() {
@@ -58,14 +65,18 @@ func main() {
 }
 
 type env struct {
-	ctx     context.Context
-	cfgPath string
-	dataDir string
-	clName  string
-	asJSON  bool
-	stdin   io.Reader
-	out     io.Writer
-	errOut  io.Writer
+	ctx      context.Context
+	cfgPath  string
+	dataDir  string
+	clName   string
+	storeK   string
+	table    string
+	queueURL string
+	profile  string
+	asJSON   bool
+	stdin    io.Reader
+	out      io.Writer
+	errOut   io.Writer
 }
 
 func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -76,6 +87,10 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	fs.StringVar(&e.cfgPath, "config", pipeline.Env("ICR_CONFIG", pipeline.DefaultConfig), "")
 	fs.StringVar(&e.dataDir, "data", pipeline.Env("ICR_DATA_DIR", pipeline.DefaultDataDir), "")
 	fs.StringVar(&e.clName, "classifier", pipeline.Env("ICR_CLASSIFIER", ""), "")
+	fs.StringVar(&e.storeK, "store", pipeline.Env("ICR_STORE", "file"), "")
+	fs.StringVar(&e.table, "table", os.Getenv("ICR_ITEMS_TABLE"), "")
+	fs.StringVar(&e.queueURL, "queue-url", os.Getenv("ICR_QUEUE_URL"), "")
+	fs.StringVar(&e.profile, "profile", os.Getenv("AWS_PROFILE"), "")
 	fs.BoolVar(&e.asJSON, "json", false, "")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -122,9 +137,32 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 var errUsage = errors.New("usage")
 
-func (e *env) open() (*pipeline.Local, error) {
+// opened is a pipeline plus the local directory queue (nil against AWS,
+// where the worker Lambda consumes SQS).
+type opened struct {
+	*pipeline.Service
+	dirQueue *ingest.DirQueue
+}
+
+func (e *env) open() (*opened, error) {
 	lg := slog.New(slog.NewTextHandler(e.errOut, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	return pipeline.OpenLocal(e.ctx, e.cfgPath, e.dataDir, e.clName, lg)
+	switch e.storeK {
+	case "file", "":
+		l, err := pipeline.OpenLocal(e.ctx, e.cfgPath, e.dataDir, e.clName, lg)
+		if err != nil {
+			return nil, err
+		}
+		return &opened{Service: l.Service, dirQueue: l.DirQueue}, nil
+	case "dynamo":
+		app, err := awsapp.New(e.ctx, awsapp.Options{ConfigPath: e.cfgPath, Table: e.table, QueueURL: e.queueURL,
+			Classifier: e.clName, Profile: e.profile, ActionLog: e.errOut, Log: lg})
+		if err != nil {
+			return nil, err
+		}
+		return &opened{Service: app.Svc}, nil
+	default:
+		return nil, fmt.Errorf("%w: -store must be file or dynamo", errUsage)
+	}
 }
 
 func (e *env) flags(name string) *flag.FlagSet {
@@ -204,6 +242,10 @@ func (e *env) ingest(args []string) error {
 		}
 	}
 	processed := 0
+	if *process && p.dirQueue == nil {
+		*process = false
+		fmt.Fprintln(e.errOut, "note: -process ignored with -store dynamo; the worker Lambda processes the SQS queue")
+	}
 	if *process {
 		for {
 			n, err := p.RunOnce(e.ctx, 25)
@@ -231,6 +273,8 @@ func (e *env) ingest(args []string) error {
 	}
 	if *process {
 		fmt.Fprintf(e.out, "\nprocessed %d item(s). Run `icr status` to see where they went.\n", processed)
+	} else if p.dirQueue == nil {
+		fmt.Fprintln(e.out, "\nqueued to SQS; the worker Lambda will classify and route them.")
 	} else {
 		fmt.Fprintln(e.out, "\nqueued. Start the worker (go run ./cmd/worker) or re-run with -process.")
 	}
@@ -374,12 +418,19 @@ func (e *env) status(args []string) error {
 	if err != nil {
 		return err
 	}
-	pending, inflight, dead := p.DirQueue.Depth()
-	if e.asJSON {
-		return e.printJSON(map[string]any{"stats": st, "queue": map[string]int{"pending": pending, "inflight": inflight, "dead": dead}, "items": items})
+	var qinfo map[string]int
+	if p.dirQueue != nil {
+		pending, inflight, dead := p.dirQueue.Depth()
+		qinfo = map[string]int{"pending": pending, "inflight": inflight, "dead": dead}
 	}
-	fmt.Fprintf(e.out, "%d item(s) | %d routed automatically | %d waiting on human review | queue: %d pending, %d in flight, %d dead-lettered\n\n",
-		st.Total, st.Automatic, st.NeedsReview, pending, inflight, dead)
+	if e.asJSON {
+		return e.printJSON(map[string]any{"stats": st, "queue": qinfo, "items": items})
+	}
+	fmt.Fprintf(e.out, "%d item(s) | %d routed automatically | %d waiting on human review", st.Total, st.Automatic, st.NeedsReview)
+	if qinfo != nil {
+		fmt.Fprintf(e.out, " | queue: %d pending, %d in flight, %d dead-lettered", qinfo["pending"], qinfo["inflight"], qinfo["dead"])
+	}
+	fmt.Fprint(e.out, "\n\n")
 	tw := tabwriter.NewWriter(e.out, 0, 2, 2, ' ', 0)
 	fmt.Fprintln(tw, "ID\tCHANNEL\tCATEGORY\tPRIORITY\tCONF\tSTATUS\tQUEUE\tREVIEW\tSUBJECT")
 	for _, it := range items {
@@ -466,8 +517,19 @@ func (e *env) outbox(args []string) error {
 	if _, err := parseInterleaved(fs, args); err != nil {
 		return err
 	}
-	entries, err := router.ReadOutbox(pipeline.OutboxDir(e.dataDir))
-	if err != nil {
+	var entries []router.OutboxEntry
+	var err error
+	if e.storeK == "dynamo" {
+		p, oerr := e.open()
+		if oerr != nil {
+			return oerr
+		}
+		items, lerr := p.List(e.ctx, store.Filter{})
+		if lerr != nil {
+			return lerr
+		}
+		entries = pipeline.ActionsFromItems(items)
+	} else if entries, err = router.ReadOutbox(pipeline.OutboxDir(e.dataDir)); err != nil {
 		return err
 	}
 	if e.asJSON {
@@ -479,6 +541,9 @@ func (e *env) outbox(args []string) error {
 	}
 	for _, en := range entries {
 		ref := en.Ref
+		if ref == "" {
+			ref = "-"
+		}
 		switch en.Kind {
 		case "slack":
 			ref = en.Target
