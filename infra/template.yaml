@@ -1,0 +1,226 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Rivergate Technologies ICR (Ingest -> Classify -> Route) pipeline for support
+  tickets. S3 drop zone + API Gateway webhook -> SQS -> Go worker Lambda ->
+  Bedrock classification -> DynamoDB state/audit trail -> routing actions.
+
+  STATUS: authored for phase 5, NOT yet validated, built or deployed. The two
+  Lambda entry points it builds (cmd/lambda/worker, cmd/lambda/webhook) and the
+  DynamoDB/SQS adapters are phase 5 work - see infra/README.md.
+
+Parameters:
+  Stage:
+    Type: String
+    Default: demo
+    AllowedValues: [demo, dev, prod]
+  ClassifierProvider:
+    Type: String
+    Default: bedrock
+    AllowedValues: [bedrock, mock]
+    Description: Use "mock" to deploy the plumbing without any Bedrock calls.
+  BedrockInferenceProfileId:
+    Type: String
+    Default: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    Description: PLACEHOLDER - the cross-region inference profile (or model ID) the worker calls. Confirm it is enabled in your account.
+  BedrockFoundationModelId:
+    Type: String
+    Default: anthropic.claude-haiku-4-5-20251001-v1:0
+    Description: PLACEHOLDER - the foundation model behind the inference profile (needed for IAM).
+  WebhookSharedSecretParam:
+    Type: String
+    Default: rivergate-icr/webhook-shared-secret
+    Description: SSM SecureString parameter name (WITHOUT the leading slash) holding the shared secret webhook callers must send. Create it before deploying.
+
+Globals:
+  Function:
+    Runtime: provided.al2023
+    Architectures: [arm64]
+    Handler: bootstrap
+    MemorySize: 256
+    Timeout: 30
+    Tracing: Active
+    LoggingConfig:
+      LogFormat: JSON
+    Environment:
+      Variables:
+        ICR_STAGE: !Ref Stage
+        ICR_ITEMS_TABLE: !Ref ItemsTable
+        ICR_QUEUE_URL: !Ref TicketQueue
+        ICR_CLASSIFIER: !Ref ClassifierProvider
+        ICR_BEDROCK_MODEL_ID: !Ref BedrockInferenceProfileId
+        ICR_CONFIG: config/rivergate.yaml
+
+Resources:
+  # ---------------------------------------------------------------- state
+  ItemsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: id, AttributeType: S }
+        - { AttributeName: queue, AttributeType: S }
+        - { AttributeName: received_at, AttributeType: S }
+      KeySchema:
+        - { AttributeName: id, KeyType: HASH }
+      GlobalSecondaryIndexes:
+        - IndexName: queue-received_at
+          KeySchema:
+            - { AttributeName: queue, KeyType: HASH }
+            - { AttributeName: received_at, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - { Key: app, Value: rivergate-icr }
+
+  # ---------------------------------------------------------------- queue
+  TicketDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600 # 14 days
+      SqsManagedSseEnabled: true
+
+  TicketQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 180 # 6x the worker timeout
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt TicketDLQ.Arn
+        maxReceiveCount: 3 # matches ingest.MaxAttempts locally
+
+  # Lets the drop-zone bucket publish new-object events onto the queue.
+  TicketQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref TicketQueue]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowDropZoneEvents
+            Effect: Allow
+            Principal: { Service: s3.amazonaws.com }
+            Action: sqs:SendMessage
+            Resource: !GetAtt TicketQueue.Arn
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:s3:::${AWS::StackName}-dropzone-${AWS::AccountId}
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+
+  # ---------------------------------------------------------------- ingestion
+  DropZoneBucket:
+    Type: AWS::S3::Bucket
+    DependsOn: TicketQueuePolicy
+    Properties:
+      # Fixed name so the queue policy can reference it without a circular dependency.
+      BucketName: !Sub ${AWS::StackName}-dropzone-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-demo-drops
+            Status: Enabled
+            ExpirationInDays: 30
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Event: s3:ObjectCreated:*
+            Queue: !GetAtt TicketQueue.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - { Name: prefix, Value: incoming/ }
+                  - { Name: suffix, Value: .json }
+
+  WebhookApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Stage
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 10
+
+  WebhookFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+    Properties:
+      Description: API Gateway webhook receiver - normalizes a ticket payload, records it, enqueues it.
+      CodeUri: ../
+      Environment:
+        Variables:
+          ICR_WEBHOOK_SECRET_PARAM: !Sub /${WebhookSharedSecretParam}
+      Events:
+        PostTicket:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref WebhookApi
+            Path: /tickets
+            Method: POST
+      Policies:
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt TicketQueue.QueueName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ItemsTable
+        - SSMParameterReadPolicy:
+            ParameterName: !Ref WebhookSharedSecretParam
+
+  # ---------------------------------------------------------------- worker
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+    Properties:
+      Description: SQS consumer - normalize -> classify (Bedrock) -> write state (DynamoDB) -> route.
+      CodeUri: ../
+      Timeout: 30
+      Environment:
+        Variables:
+          ICR_DROPZONE_BUCKET: !Sub ${AWS::StackName}-dropzone-${AWS::AccountId}
+      Events:
+        Tickets:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt TicketQueue.Arn
+            BatchSize: 10
+            MaximumBatchingWindowInSeconds: 2
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            ScalingConfig:
+              MaximumConcurrency: 2 # bounds Bedrock spend/throttling without reserving account concurrency
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ItemsTable
+        - S3ReadPolicy:
+            BucketName: !Sub ${AWS::StackName}-dropzone-${AWS::AccountId}
+        - Statement:
+            - Sid: BedrockInvokeClassifierModelOnly
+              Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource:
+                - !Sub arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/${BedrockInferenceProfileId}
+                # Cross-region inference profiles route to the model in several regions.
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/${BedrockFoundationModelId}
+
+Outputs:
+  WebhookUrl:
+    Description: POST ticket payloads here (same JSON shape as demo/tickets/*.json).
+    Value: !Sub https://${WebhookApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${Stage}/tickets
+  DropZoneBucketName:
+    Description: Upload ticket JSON under incoming/ to ingest it.
+    Value: !Ref DropZoneBucket
+  TicketQueueUrl:
+    Value: !Ref TicketQueue
+  TicketDLQUrl:
+    Value: !Ref TicketDLQ
+  ItemsTableName:
+    Value: !Ref ItemsTable

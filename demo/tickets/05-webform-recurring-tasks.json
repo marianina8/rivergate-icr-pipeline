@@ -1,0 +1,9 @@
+{
+  "channel": "webform",
+  "name": "Hana Kobayashi",
+  "email": "hana.k@juniperhollow-events.example",
+  "company": "Juniper Hollow Events",
+  "topic": "Feature request: recurring tasks with custom intervals",
+  "submitted_at": "2026-09-21T17:40:00Z",
+  "message": "It would be great if tasks could repeat on custom schedules, like every second Tuesday or the last business day of the month. Please add this - our operations team would love it. Any plans for this on the roadmap?"
+}

@@ -1,0 +1,32 @@
+# AWS SAM CLI config for the Rivergate ICR pipeline. Run sam commands from
+# this directory (infra/). NOT yet used: phase 5 (real AWS) is pending.
+version = 0.1
+
+[default.global.parameters]
+stack_name = "rivergate-icr-pipeline"
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.validate.parameters]
+lint = true
+
+[default.deploy.parameters]
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+fail_on_empty_changeset = false
+resolve_s3 = true
+region = "us-west-2"
+s3_prefix = "rivergate-icr-pipeline"
+parameter_overrides = "Stage=\"demo\" ClassifierProvider=\"bedrock\""
+tags = "app=\"rivergate-icr\" data=\"synthetic\""
+
+[default.sync.parameters]
+watch = true
+
+[default.local_start_api.parameters]
+warm_containers = "EAGER"
+
+[default.local_invoke.parameters]
+env_vars = "local-env.json"

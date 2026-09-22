@@ -1,0 +1,58 @@
+{{template "head" .Company}}
+{{if .Flash}}<p class="panel flash">{{.Flash}}</p>{{end}}
+
+<div class="stats">
+  <div class="panel stat"><b>{{.Stats.Total}}</b><span>tickets</span></div>
+  <div class="panel stat"><b>{{.Stats.Automatic}}</b><span>routed automatically</span></div>
+  <div class="panel stat"><b>{{.Stats.NeedsReview}}</b><span>waiting on a human</span></div>
+  <div class="panel stat"><b>{{len .Outbox}}</b><span>actions taken</span></div>
+</div>
+
+<h2>Human review queue ({{len .Review}})</h2>
+<div class="panel tablewrap">
+{{if .Review}}
+<table>
+  <tr><th>ID</th><th>Subject</th><th>Model says</th><th>Conf.</th><th>Why it's here</th></tr>
+  {{range .Review}}
+  <tr>
+    <td class="id"><a href="/items/{{.ID}}">{{.ID}}</a></td>
+    <td>{{.Ticket.Subject}}<br><span class="muted">{{.Ticket.Company}} · {{.Ticket.Channel}}</span></td>
+    <td>{{with .Classification}}<span class="chip">{{.Category}}</span> <span class="chip">{{.Priority}}</span>{{end}}</td>
+    <td>{{with .Classification}}<span class="conf {{confClass .Confidence}}">{{pct .Confidence}}</span>{{end}}</td>
+    <td class="muted">{{with .Decision}}{{.Reason}}{{end}}</td>
+  </tr>
+  {{end}}
+</table>
+{{else}}<p class="muted">Nothing waiting. Every ticket so far was confidently routed or already reviewed.</p>{{end}}
+</div>
+
+<h2>All tickets</h2>
+<div class="panel tablewrap">
+{{if .All}}
+<table>
+  <tr><th>ID</th><th>Subject</th><th>Category</th><th>Priority</th><th>Conf.</th><th>Status</th><th>Queue</th></tr>
+  {{range .All}}
+  <tr>
+    <td class="id"><a href="/items/{{.ID}}">{{.ID}}</a></td>
+    <td>{{.Ticket.Subject}}{{if .NeedsReview}} <span class="flag">· review</span>{{end}}</td>
+    {{with .Classification}}<td><span class="chip">{{.Category}}</span></td><td>{{.Priority}}</td><td><span class="conf {{confClass .Confidence}}">{{pct .Confidence}}</span></td>{{else}}<td>—</td><td>—</td><td>—</td>{{end}}
+    <td>{{.Status}}</td>
+    <td>{{.Queue}}</td>
+  </tr>
+  {{end}}
+</table>
+{{else}}<p class="muted">No tickets yet. Run <code>go run ./cmd/cli ingest -process demo/tickets</code>.</p>{{end}}
+</div>
+
+<h2>Automatic actions (stubbed outbox)</h2>
+<div class="panel tablewrap">
+{{if .Outbox}}
+<table>
+  <tr><th>When</th><th>Kind</th><th>Target</th><th>What</th><th>Why</th></tr>
+  {{range .Outbox}}
+  <tr><td>{{when .At}}</td><td><span class="chip">{{.Kind}}</span></td><td>{{.Target}}</td><td>{{if eq .Kind "ticket"}}<b>{{.Ref}}</b> {{end}}{{.Request.ItemID}} — {{.Detail}}</td><td class="muted">{{.Request.Reason}}</td></tr>
+  {{end}}
+</table>
+{{else}}<p class="muted">No actions yet.</p>{{end}}
+</div>
+{{template "foot"}}

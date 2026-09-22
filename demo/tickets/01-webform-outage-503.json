@@ -1,0 +1,9 @@
+{
+  "channel": "webform",
+  "name": "Priya Venkataraman",
+  "email": "priya.v@brightmoor-logistics.example",
+  "company": "Brightmoor Logistics",
+  "topic": "All boards returning 503 errors",
+  "submitted_at": "2026-09-21T16:47:00Z",
+  "message": "Since about 9:40am Pacific every board in our workspace shows a 503 error page. The entire workspace is down for all 60 of us and nobody can open a project. Your status page still says all systems operational."
+}

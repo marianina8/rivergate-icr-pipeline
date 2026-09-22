@@ -1,0 +1,9 @@
+{
+  "channel": "email",
+  "from": "Dana Okafor <dana.okafor@cobaltreed-health.example>",
+  "to": "support@rivergate.example",
+  "company": "Cobaltreed Health Partners",
+  "subject": "Assignment notification emails arriving hours late",
+  "received_at": "2026-09-21T18:44:00Z",
+  "body": "Since Monday, task assignment notification emails show up three to four hours after the task is assigned. Not sure if this is on your end or our mail filter - nothing looks broken inside the app itself, the in-app notifications are on time."
+}

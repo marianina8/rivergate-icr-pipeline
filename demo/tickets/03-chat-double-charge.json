@@ -1,0 +1,23 @@
+{
+  "channel": "chat",
+  "started_at": "2026-09-21T17:20:00Z",
+  "customer": {
+    "name": "Lucia Ferrante",
+    "email": "lucia@quillfeather-studios.example",
+    "company": "Quillfeather Studios"
+  },
+  "transcript": [
+    {
+      "from": "bot",
+      "text": "Hi! You're chatting with Rivergate Support. What can we help with?"
+    },
+    {
+      "from": "customer",
+      "text": "Hi, we were charged twice for our annual Business plan renewal on the 14th."
+    },
+    {
+      "from": "customer",
+      "text": "Two identical charges of $5,400 hit our company credit card. Can you refund the duplicate?"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "channel": "email",
+  "from": "Theo Brandvold <theo@marrowgate-build.example>",
+  "to": "support@rivergate.example",
+  "company": "Marrowgate Construction",
+  "subject": "Guests and our seat count",
+  "received_at": "2026-09-21T18:10:00Z",
+  "body": "Quick question - we invited 12 subcontractors to our workspace as guests. Will guests show up as paid seats on our next invoice? And how do I set up guest permissions so they only see the one project they're working on?"
+}

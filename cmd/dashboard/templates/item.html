@@ -1,0 +1,81 @@
+{{template "head" .Company}}
+{{if .Flash}}<p class="panel flash">{{.Flash}}</p>{{end}}
+{{if .Error}}<p class="panel err">{{.Error}}</p>{{end}}
+{{with .Item}}
+<p><a href="/">← back to queue</a></p>
+<h2 style="margin-top:0">{{.ID}} · {{.Ticket.Subject}}</h2>
+<p class="muted">Status <b>{{.Status}}</b> · queue <b>{{if .Queue}}{{.Queue}}{{else}}—{{end}}</b>{{if .NeedsReview}} · <span class="flag">needs human review</span>{{end}}</p>
+
+<div class="grid2">
+  <div class="panel">
+    <h2 style="margin-top:0">Ticket</h2>
+    <dl>
+      <dt>From</dt><dd>{{.Ticket.CustomerName}} &lt;{{.Ticket.CustomerEmail}}&gt;</dd>
+      <dt>Company</dt><dd>{{.Ticket.Company}}</dd>
+      <dt>Channel</dt><dd>{{.Ticket.Channel}} (via {{.Ticket.Source}})</dd>
+      <dt>Received</dt><dd>{{when .Ticket.ReceivedAt}}</dd>
+    </dl>
+    <hr style="border:0;border-top:1px solid var(--line)">
+    <pre class="body">{{.Ticket.Body}}</pre>
+  </div>
+  <div class="panel">
+    <h2 style="margin-top:0">Model classification</h2>
+    {{with .Classification}}
+    <dl>
+      <dt>Category</dt><dd><span class="chip">{{.Category}}</span></dd>
+      <dt>Priority</dt><dd><span class="chip">{{.Priority}}</span></dd>
+      <dt>Confidence</dt><dd><span class="conf {{confClass .Confidence}}">{{pct .Confidence}}</span>{{if .HumanVerified}} · human-verified{{end}}</dd>
+      <dt>Summary</dt><dd>{{.Summary}}</dd>
+      <dt>Rationale</dt><dd class="muted">{{.Rationale}}</dd>
+      <dt>Classifier</dt><dd class="muted">{{.Classifier}}</dd>
+    </dl>
+    {{else}}<p class="muted">Not classified yet.</p>{{end}}
+    {{with .Decision}}
+    <h2>Routing decision</h2>
+    <dl>
+      <dt>Rule</dt><dd>{{.Rule}}</dd>
+      <dt>Queue</dt><dd>{{.Queue}}</dd>
+      <dt>Automatic</dt><dd>{{.Automatic}}</dd>
+      <dt>Reason</dt><dd class="muted">{{.Reason}}</dd>
+    </dl>
+    {{end}}
+    {{with .Review}}
+    <h2>Review</h2>
+    <p>{{.Outcome}} by {{.Reviewer}} at {{when .At}}{{if .Note}} — “{{.Note}}”{{end}}</p>
+    {{end}}
+  </div>
+</div>
+{{end}}
+
+{{if .Item.Classification}}
+<h2>Decide</h2>
+<div class="grid2">
+  <form class="panel" method="post" action="/items/{{.Item.ID}}/approve">
+    <b>Approve the model's classification</b>
+    <span class="muted">Routes it as human-verified using the normal rules.</span>
+    <label>Reviewer<input name="reviewer" value="{{.Reviewer}}" required></label>
+    <label>Note (optional)<input name="note" placeholder="Looks right"></label>
+    <button type="submit">Approve</button>
+  </form>
+  <form class="panel" method="post" action="/items/{{.Item.ID}}/override">
+    <b>Override</b>
+    <span class="muted">Correct the category and/or priority, then route.</span>
+    {{$c := .Item.Classification}}
+    <label>Category<select name="category">{{range .Categories}}<option value="{{.}}"{{if eq . $c.Category}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+    <label>Priority<select name="priority">{{range .Priorities}}<option value="{{.}}"{{if eq . $c.Priority}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+    <label>Reviewer<input name="reviewer" value="{{.Reviewer}}" required></label>
+    <label>Note<input name="note" placeholder="Why the model was wrong"></label>
+    <button type="submit" class="secondary">Override &amp; route</button>
+  </form>
+</div>
+{{end}}
+
+<h2>Audit trail</h2>
+<div class="panel">
+  <ul class="events">
+  {{range .Item.Events}}
+    <li><code>{{when .At}}</code> <span class="chip">{{.Type}}</span> <b>{{.Actor}}</b> — {{.Detail}}</li>
+  {{end}}
+  </ul>
+</div>
+{{template "foot"}}

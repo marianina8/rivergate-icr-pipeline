@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "rivergate-icr": {
+      "command": "/ABSOLUTE/PATH/TO/rivergate-icr-pipeline/bin/icr",
+      "args": [
+        "-config", "/ABSOLUTE/PATH/TO/rivergate-icr-pipeline/config/rivergate.yaml",
+        "-data", "/ABSOLUTE/PATH/TO/rivergate-icr-pipeline/.icr",
+        "mcp"
+      ]
+    },
+    "rivergate-icr-with-routing": {
+      "command": "/ABSOLUTE/PATH/TO/rivergate-icr-pipeline/bin/icr",
+      "args": [
+        "-config", "/ABSOLUTE/PATH/TO/rivergate-icr-pipeline/config/rivergate.yaml",
+        "-data", "/ABSOLUTE/PATH/TO/rivergate-icr-pipeline/.icr",
+        "mcp", "-allow-write", "route_item,reclassify", "-actor", "triage-agent"
+      ]
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "channel": "email",
+  "from": "Tomasz Wierzba <t.wierzba@kestrelfinch-arch.example>",
+  "to": "support@rivergate.example",
+  "company": "Kestrel & Finch Architects",
+  "subject": "140 tasks disappeared after sync - client review tomorrow",
+  "received_at": "2026-09-21T17:05:00Z",
+  "body": "After this morning's sync with the Rivergate desktop app, about 140 tasks in our 'Harbor Pavilion' project have disappeared. The activity log says they were deleted by our own admin account, but nobody on our side deleted anything. This looks like a bug that caused real data loss, and we have a client review tomorrow morning.\n\nTomasz"
+}

@@ -1,0 +1,60 @@
+{{define "head"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.}} · Review queue</title>
+<style>
+:root { --bg:#f7f7f5; --panel:#fff; --ink:#1d1d1b; --muted:#6b6b66; --line:#e3e2dd; --accent:#1f5f8b;
+        --hi:#1e7a46; --mid:#a86b00; --lo:#b3261e; --chip:#eeede8; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#161615; --panel:#1f1f1d; --ink:#ecebe6; --muted:#9b9a93; --line:#33322f; --accent:#7fb4dc;
+          --hi:#6fcf97; --mid:#f2c14e; --lo:#ff8a80; --chip:#2a2a27; }
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+header { padding:14px 24px; border-bottom:1px solid var(--line); background:var(--panel); display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; }
+header a { color:inherit; text-decoration:none; font-weight:600; }
+header .sub { color:var(--muted); font-size:13px; }
+main { max-width:1180px; margin:0 auto; padding:20px 16px 48px; }
+h2 { font-size:16px; margin:28px 0 10px; }
+.panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 16px; }
+.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+.stat b { display:block; font-size:24px; font-variant-numeric:tabular-nums; }
+.stat span { color:var(--muted); font-size:13px; }
+.tablewrap { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; font-size:14px; }
+th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { color:var(--muted); font-weight:500; font-size:12px; text-transform:uppercase; letter-spacing:.03em; }
+td a { color:var(--accent); }
+.chip { display:inline-block; padding:1px 8px; border-radius:999px; background:var(--chip); font-size:12px; white-space:nowrap; }
+.conf { font-variant-numeric:tabular-nums; font-weight:600; }
+.conf.hi { color:var(--hi); } .conf.mid { color:var(--mid); } .conf.lo { color:var(--lo); }
+.flag { color:var(--lo); font-weight:600; }
+.flash { border-left:4px solid var(--hi); } .err { border-left:4px solid var(--lo); }
+.muted { color:var(--muted); }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+@media (max-width:760px) { .grid2 { grid-template-columns:1fr; } }
+dl { display:grid; grid-template-columns:max-content 1fr; gap:4px 14px; margin:0; }
+dt { color:var(--muted); }
+pre.body { white-space:pre-wrap; font:inherit; margin:0; }
+form { display:grid; gap:8px; align-content:start; }
+td.id { white-space:nowrap; }
+label { font-size:13px; color:var(--muted); display:grid; gap:3px; }
+input, select, textarea { font:inherit; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+button { font:inherit; border:0; border-radius:6px; padding:8px 12px; cursor:pointer; background:var(--accent); color:#fff; font-weight:600; }
+button.secondary { background:var(--chip); color:var(--ink); }
+.events li { margin-bottom:6px; }
+.events code { font-size:12px; color:var(--muted); }
+</style>
+</head>
+<body>
+<header><a href="/">{{.}} · Support triage</a><span class="sub">Ingest → Classify → Route · human review queue · local demo, synthetic data</span></header>
+<main>
+{{end}}
+
+{{define "foot"}}
+</main>
+</body>
+</html>
+{{end}}

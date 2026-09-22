@@ -1,0 +1,23 @@
+{
+  "channel": "chat",
+  "started_at": "2026-09-21T18:31:00Z",
+  "customer": {
+    "name": "Greta Solberg",
+    "email": "greta@fernwick-media.example",
+    "company": "Fernwick Media"
+  },
+  "transcript": [
+    {
+      "from": "bot",
+      "text": "Hi! You're chatting with Rivergate Support. What can we help with?"
+    },
+    {
+      "from": "customer",
+      "text": "it's acting up again"
+    },
+    {
+      "from": "customer",
+      "text": "same thing as last time. please fix asap, we have a demo in an hour"
+    }
+  ]
+}

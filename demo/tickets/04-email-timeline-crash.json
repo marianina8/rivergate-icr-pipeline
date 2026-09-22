@@ -1,0 +1,9 @@
+{
+  "channel": "email",
+  "from": "Marcus Oyelaran <marcus.o@northvane-outfitters.example>",
+  "to": "support@rivergate.example",
+  "company": "Northvane Outfitters",
+  "subject": "Timeline view crashes when dragging tasks with dependencies",
+  "received_at": "2026-09-21T17:32:00Z",
+  "body": "In the Timeline view, dragging any task that has a dependency crashes the page with 'Unexpected error: cannot read dependency graph'. Tasks without dependencies move fine. It happens in both Chrome and Firefox, and it started after last week's release, so it may be a regression."
+}

@@ -1,0 +1,23 @@
+{
+  "channel": "chat",
+  "started_at": "2026-09-21T17:52:00Z",
+  "customer": {
+    "name": "Ines Albuquerque",
+    "email": "ines@tallowbrook-dental.example",
+    "company": "Tallowbrook Dental Group"
+  },
+  "transcript": [
+    {
+      "from": "bot",
+      "text": "Hi! You're chatting with Rivergate Support. What can we help with?"
+    },
+    {
+      "from": "customer",
+      "text": "How do I export a board to CSV? I need to send our sprint backlog to our finance team."
+    },
+    {
+      "from": "customer",
+      "text": "Also, is there a way to include the custom fields in the export?"
+    }
+  ]
+}
