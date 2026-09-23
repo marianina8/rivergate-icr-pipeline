@@ -20,8 +20,9 @@ confirm_changeset = true
 fail_on_empty_changeset = false
 resolve_s3 = true
 s3_prefix = "rivergate-icr-pipeline"
-parameter_overrides = "Stage=\"demo\" ClassifierProvider=\"bedrock\""
+parameter_overrides = "Stage=\"demo\" ClassifierProvider=\"bedrock\" BedrockInferenceProfileId=\"us.anthropic.claude-haiku-4-5-20251001-v1:0\" BedrockFoundationModelId=\"anthropic.claude-haiku-4-5-20251001-v1:0\" WebhookSharedSecretParam=\"rivergate-icr/webhook-shared-secret\""
 tags = "app=\"rivergate-icr\" data=\"synthetic\""
+image_repositories = []
 
 [default.sync.parameters]
 watch = true
