@@ -47,8 +47,8 @@ type Options struct {
 	// SiteURL, when set, adds an "About this demo" link to the header
 	// (e.g. /demos on marian.online).
 	SiteURL string
-	// Sandboxes gives every sign-in its own private workspace, seeded with
-	// the example tickets; visitors never see each other's tickets. Requires
+	// Sandboxes gives every sign-in its own empty private workspace;
+	// visitors never see each other's tickets. Requires
 	// a Password. SandboxTTL is shown to visitors ("24 hours").
 	Sandboxes  bool
 	SandboxTTL string

@@ -175,12 +175,8 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	ws := ""
 	if s.opt.Sandboxes {
-		// Every sign-in gets a fresh private sandbox seeded with the examples.
+		// Every sign-in gets a fresh, empty private sandbox.
 		ws = newWorkspaceID()
-		if err := s.seed(r.Context(), ws); err != nil {
-			s.fail(w, err)
-			return
-		}
 	}
 	tok, exp := s.auth.token(ws)
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: tok, Path: s.auth.path, Expires: exp,

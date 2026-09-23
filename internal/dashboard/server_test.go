@@ -364,17 +364,27 @@ func TestSandboxesIsolateVisitors(t *testing.T) {
 	h := sandboxHarness(t)
 	alice, bob := login(t, h, "pw"), login(t, h, "pw")
 
-	// Each sandbox starts with its own 10 classified example tickets.
+	// Each sandbox starts empty, with a prompt to submit a ticket.
 	for name, c := range map[string]*http.Cookie{"alice": alice, "bob": bob} {
 		rec := h.do(httptest.NewRequest(http.MethodGet, "/", nil), c)
 		body := rec.Body.String()
-		if rec.Code != 200 || !strings.Contains(body, "Human review queue (4)") || !strings.Contains(body, "private sandbox") {
-			t.Errorf("%s: sandbox not seeded/labelled (code %d)", name, rec.Code)
+		if rec.Code != 200 || !strings.Contains(body, "No tickets yet") || !strings.Contains(body, "Human review queue (0)") || !strings.Contains(body, "private sandbox") {
+			t.Errorf("%s: new sandbox should be empty and labelled (code %d)", name, rec.Code)
 		}
 	}
-	all, _ := h.p.List(context.Background(), store.Filter{})
-	if len(all) != 20 {
-		t.Fatalf("want 10 seeded items per sandbox (20), got %d", len(all))
+	if all, _ := h.p.List(context.Background(), store.Filter{}); len(all) != 0 {
+		t.Fatalf("signing in must not create tickets, got %d", len(all))
+	}
+	// The same example submitted in both sandboxes is two separate tickets.
+	ex := url.Values{"mode": {"json"}, "json": {string(h.s.opt.Examples[0].Payload)}}
+	if rec := h.do(postForm("/submit", ex, ""), alice); rec.Code != http.StatusSeeOther {
+		t.Fatalf("alice example submit = %d", rec.Code)
+	}
+	if rec := h.do(postForm("/submit", ex, ""), bob); rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "already") {
+		t.Fatalf("bob's copy should not be a duplicate of alice's: %s", rec.Header().Get("Location"))
+	}
+	if all, _ := h.p.List(context.Background(), store.Filter{}); len(all) != 2 {
+		t.Fatalf("want one item per sandbox, got %d", len(all))
 	}
 
 	// Alice submits a ticket; Bob can't see, open or act on it.

@@ -24,7 +24,7 @@
   </tr>
   {{end}}
 </table>
-{{else}}<p class="muted">Nothing waiting. Every ticket so far was confidently routed or already reviewed.</p>{{end}}
+{{else}}{{if .All}}<p class="muted">Nothing waiting. Every ticket so far was confidently routed or already reviewed.</p>{{else}}<p class="muted">Empty for now — tickets the model isn't sure about will land here for you to approve or override.</p>{{end}}{{end}}
 </div>
 
 <h2>All tickets</h2>
@@ -42,7 +42,7 @@
   </tr>
   {{end}}
 </table>
-{{else}}<p class="muted">No tickets yet. Run <code>go run ./cmd/cli ingest -process demo/tickets</code>.</p>{{end}}
+{{else}}<div class="empty"><p><b>No tickets yet.</b> Submit one to watch it get classified and routed — write your own, or start from one of the 10 example tickets.</p><p><a class="btn" href="{{$.Page.Base}}/submit">+ Submit a ticket</a></p></div>{{end}}
 </div>
 
 <h2>Automatic actions (stubbed outbox)</h2>

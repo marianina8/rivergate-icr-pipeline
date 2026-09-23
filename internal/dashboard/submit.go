@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -121,21 +120,6 @@ func (s *Server) submitError(w http.ResponseWriter, r *http.Request, err error) 
 		d.JSON = exampleSkeleton
 	}
 	s.renderStatus(w, http.StatusBadRequest, "submit.html", d)
-}
-
-// seed fills a new sandbox with the example tickets so the visitor starts
-// with a populated review queue. They are classified by the worker like any
-// other ticket (locally, immediately via ProcessInline).
-func (s *Server) seed(ctx context.Context, ws string) error {
-	for _, ex := range s.opt.Examples {
-		if _, _, err := s.opt.Svc.IngestIn(ctx, ws, ex.Payload, "example"); err != nil {
-			return fmt.Errorf("seed sandbox: %w", err)
-		}
-	}
-	if s.opt.ProcessInline != nil && len(s.opt.Examples) > 0 {
-		return s.opt.ProcessInline(ctx)
-	}
-	return nil
 }
 
 // submissionPayload turns the form into a raw channel payload: an uploaded
