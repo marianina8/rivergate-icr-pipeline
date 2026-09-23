@@ -232,3 +232,12 @@ func TestWebhookHandler(t *testing.T) {
 		t.Errorf("calls = %v", calls)
 	}
 }
+
+func TestTicketIDIncludesWorkspace(t *testing.T) {
+	tk, _ := Normalize([]byte(`{"channel":"email","from":"a@example.test","subject":"s","body":"b"}`), "cli", now)
+	a, b := tk, tk
+	a.Workspace, b.Workspace = "aa11", "bb22"
+	if TicketID(a) == TicketID(b) || TicketID(a) == tk.ID {
+		t.Error("the same ticket in two sandboxes must get different IDs")
+	}
+}

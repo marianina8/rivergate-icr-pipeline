@@ -35,6 +35,8 @@ type Ticket struct {
 	Company       string    `json:"company"`
 	Subject       string    `json:"subject"`
 	Body          string    `json:"body"`
+	// Workspace scopes a ticket to one private demo sandbox ("" = shared).
+	Workspace string `json:"workspace,omitempty"`
 }
 
 // raw is the union of the three channel payload shapes.
@@ -125,7 +127,12 @@ func Normalize(payload []byte, source string, now time.Time) (Ticket, error) {
 // TicketID is a stable content hash, so re-ingesting the same ticket (a retry,
 // a duplicate webhook delivery) is idempotent.
 func TicketID(t Ticket) string {
-	h := sha256.Sum256([]byte(strings.Join([]string{t.Channel, strings.ToLower(t.CustomerEmail), t.Subject, t.Body}, "\x1f")))
+	parts := []string{t.Channel, strings.ToLower(t.CustomerEmail), t.Subject, t.Body}
+	if t.Workspace != "" {
+		// The same ticket submitted in two sandboxes is two different items.
+		parts = append(parts, "ws:"+t.Workspace)
+	}
+	h := sha256.Sum256([]byte(strings.Join(parts, "\x1f")))
 	return "RG-" + strings.ToUpper(hex.EncodeToString(h[:4]))
 }
 

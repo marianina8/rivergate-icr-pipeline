@@ -1,7 +1,9 @@
 package dashboard
 
 import (
+	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -34,27 +36,64 @@ func newAuth(password string, secure bool) *auth {
 	return &auth{password: []byte(password), key: k[:], secure: secure, path: "/", now: time.Now}
 }
 
-func (a *auth) sign(exp int64) string {
+// Tokens are "<expiry>.<workspace>.<sig>"; the signature covers both, so a
+// visitor can't switch themselves into someone else's sandbox.
+func (a *auth) sign(exp int64, ws string) string {
 	m := hmac.New(sha256.New, a.key)
-	m.Write([]byte("v1|" + strconv.FormatInt(exp, 10)))
+	m.Write([]byte("v2|" + strconv.FormatInt(exp, 10) + "|" + ws))
 	return hex.EncodeToString(m.Sum(nil))
 }
 
-func (a *auth) token() (string, time.Time) {
+func (a *auth) token(ws string) (string, time.Time) {
 	exp := a.now().Add(sessionTTL)
-	return strconv.FormatInt(exp.Unix(), 10) + "." + a.sign(exp.Unix()), exp
+	return strconv.FormatInt(exp.Unix(), 10) + "." + ws + "." + a.sign(exp.Unix(), ws), exp
 }
 
-func (a *auth) valid(tok string) bool {
-	expS, sig, ok := strings.Cut(tok, ".")
-	if !ok {
+// parse validates a token and returns its workspace.
+func (a *auth) parse(tok string) (string, bool) {
+	parts := strings.Split(tok, ".")
+	if len(parts) != 3 {
+		return "", false
+	}
+	exp, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || a.now().Unix() > exp || !validWorkspace(parts[1]) {
+		return "", false
+	}
+	if !hmac.Equal([]byte(parts[2]), []byte(a.sign(exp, parts[1]))) {
+		return "", false
+	}
+	return parts[1], true
+}
+
+func (a *auth) valid(tok string) bool { _, ok := a.parse(tok); return ok }
+
+func validWorkspace(ws string) bool {
+	if len(ws) > 32 {
 		return false
 	}
-	exp, err := strconv.ParseInt(expS, 10, 64)
-	if err != nil || a.now().Unix() > exp {
-		return false
+	for _, r := range ws {
+		if !(r >= 'a' && r <= 'f' || r >= '0' && r <= '9') {
+			return false
+		}
 	}
-	return hmac.Equal([]byte(sig), []byte(a.sign(exp)))
+	return true
+}
+
+// newWorkspaceID returns a random sandbox ID (hex).
+func newWorkspaceID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
+}
+
+type ctxKey struct{}
+
+// workspace returns the sandbox for this request ("" = shared).
+func workspace(r *http.Request) string {
+	ws, _ := r.Context().Value(ctxKey{}).(string)
+	return ws
 }
 
 func (a *auth) check(password string) bool {
@@ -63,10 +102,15 @@ func (a *auth) check(password string) bool {
 	return subtle.ConstantTimeCompare(x[:], y[:]) == 1
 }
 
-func (a *auth) authed(r *http.Request) bool {
+func (a *auth) session(r *http.Request) (string, bool) {
 	c, err := r.Cookie(sessionCookie)
-	return err == nil && a.valid(c.Value)
+	if err != nil {
+		return "", false
+	}
+	return a.parse(c.Value)
 }
+
+func (a *auth) authed(r *http.Request) bool { _, ok := a.session(r); return ok }
 
 // requireAuth redirects unauthenticated requests to the login page.
 func (s *Server) requireAuth(h http.Handler) http.Handler {
@@ -79,8 +123,8 @@ func (s *Server) requireAuth(h http.Handler) http.Handler {
 			h.ServeHTTP(w, r)
 			return
 		}
-		if s.auth.authed(r) {
-			h.ServeHTTP(w, r)
+		if ws, ok := s.auth.session(r); ok {
+			h.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, ws)))
 			return
 		}
 		if r.Method != http.MethodGet {
@@ -129,7 +173,16 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.renderStatus(w, http.StatusUnauthorized, "login.html", loginData{Page: p, Next: next, Error: "That password isn't right."})
 		return
 	}
-	tok, exp := s.auth.token()
+	ws := ""
+	if s.opt.Sandboxes {
+		// Every sign-in gets a fresh private sandbox seeded with the examples.
+		ws = newWorkspaceID()
+		if err := s.seed(r.Context(), ws); err != nil {
+			s.fail(w, err)
+			return
+		}
+	}
+	tok, exp := s.auth.token(ws)
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: tok, Path: s.auth.path, Expires: exp,
 		HttpOnly: true, Secure: s.auth.secure, SameSite: http.SameSiteLaxMode})
 	http.Redirect(w, r, s.url(next), http.StatusSeeOther)

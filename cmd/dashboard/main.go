@@ -33,6 +33,7 @@ func main() {
 		profile  = flag.String("profile", os.Getenv("AWS_PROFILE"), "AWS CLI profile for -store dynamo")
 		examples = flag.String("examples", "demo/tickets", "directory of example tickets for the submit page")
 		basePath = flag.String("base-path", "", "serve under a path prefix, e.g. /demos/rivergate")
+		sandbox  = flag.Bool("sandboxes", false, "give every sign-in a private sandbox (needs ICR_DASHBOARD_PASSWORD)")
 	)
 	flag.Parse()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -44,7 +45,7 @@ func main() {
 		log.Warn("no examples loaded", "err", err)
 	}
 	// Set ICR_DASHBOARD_PASSWORD to require a login (e.g. when sharing the screen or the port).
-	opt := dashboard.Options{Reviewer: *reviewer, Examples: ex, Password: os.Getenv("ICR_DASHBOARD_PASSWORD"), BasePath: *basePath}
+	opt := dashboard.Options{Reviewer: *reviewer, Examples: ex, Password: os.Getenv("ICR_DASHBOARD_PASSWORD"), BasePath: *basePath, Sandboxes: *sandbox}
 	switch *storeK {
 	case "dynamo":
 		app, err := awsapp.New(ctx, awsapp.Options{ConfigPath: *cfgPath, Table: *table, QueueURL: *queueURL, Classifier: "mock", Profile: *profile, ActionLog: os.Stderr, Log: log})

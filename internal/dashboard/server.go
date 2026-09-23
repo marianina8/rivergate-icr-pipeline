@@ -29,7 +29,7 @@ type Options struct {
 	Svc *pipeline.Service
 	// Actions returns the automatic-action feed (outbox files locally,
 	// audit-trail derived against DynamoDB).
-	Actions func(ctx context.Context) ([]router.OutboxEntry, error)
+	Actions func(ctx context.Context, workspace string) ([]router.OutboxEntry, error)
 	// Reviewer pre-fills the reviewer name in forms.
 	Reviewer string
 	// Password, when set, is required to view any page (shared demo login).
@@ -47,6 +47,11 @@ type Options struct {
 	// SiteURL, when set, adds an "About this demo" link to the header
 	// (e.g. /demos on marian.online).
 	SiteURL string
+	// Sandboxes gives every sign-in its own private workspace, seeded with
+	// the example tickets; visitors never see each other's tickets. Requires
+	// a Password. SandboxTTL is shown to visitors ("24 hours").
+	Sandboxes  bool
+	SandboxTTL string
 	// AllowedOrigins lists extra origins (scheme://host) whose form posts are
 	// accepted, e.g. the public site that proxies to the dashboard.
 	AllowedOrigins []string
@@ -60,14 +65,14 @@ type Server struct {
 }
 
 // FileActions reads the local outbox files (local mode).
-func FileActions(dir string) func(context.Context) ([]router.OutboxEntry, error) {
-	return func(context.Context) ([]router.OutboxEntry, error) { return router.ReadOutbox(dir) }
+func FileActions(dir string) func(context.Context, string) ([]router.OutboxEntry, error) {
+	return func(context.Context, string) ([]router.OutboxEntry, error) { return router.ReadOutbox(dir) }
 }
 
 // AuditActions rebuilds the action feed from item audit trails (DynamoDB mode).
-func AuditActions(svc *pipeline.Service) func(context.Context) ([]router.OutboxEntry, error) {
-	return func(ctx context.Context) ([]router.OutboxEntry, error) {
-		items, err := svc.List(ctx, store.Filter{})
+func AuditActions(svc *pipeline.Service) func(context.Context, string) ([]router.OutboxEntry, error) {
+	return func(ctx context.Context, ws string) ([]router.OutboxEntry, error) {
+		items, err := svc.List(ctx, store.Filter{Workspace: ws})
 		if err != nil {
 			return nil, err
 		}
@@ -79,6 +84,12 @@ func AuditActions(svc *pipeline.Service) func(context.Context) ([]router.OutboxE
 func New(opt Options) (*Server, error) {
 	if opt.Svc == nil || opt.Actions == nil {
 		return nil, errors.New("dashboard: Svc and Actions are required")
+	}
+	if opt.Sandboxes && opt.Password == "" {
+		return nil, errors.New("dashboard: Sandboxes requires a Password (the session carries the sandbox)")
+	}
+	if opt.SandboxTTL == "" {
+		opt.SandboxTTL = "24 hours"
 	}
 	if opt.Reviewer == "" {
 		opt.Reviewer = "reviewer"
@@ -144,47 +155,51 @@ func (s *Server) url(p string) string { return s.opt.BasePath + p }
 
 // page is the data every template's header needs.
 type page struct {
-	Base    string
-	SiteURL string
-	Company string
-	Title   string
-	Refresh int
-	Nav     bool
-	Auth    bool
+	Base       string
+	SiteURL    string
+	Sandbox    bool
+	SandboxTTL string
+	Company    string
+	Title      string
+	Refresh    int
+	Nav        bool
+	Auth       bool
 }
 
 func (s *Server) page(title string) page {
-	return page{Base: s.opt.BasePath, SiteURL: s.opt.SiteURL, Company: s.opt.Svc.Cfg.Instance.Company, Title: title, Nav: true, Auth: s.auth != nil}
+	return page{Sandbox: s.opt.Sandboxes, SandboxTTL: s.opt.SandboxTTL, Base: s.opt.BasePath, SiteURL: s.opt.SiteURL, Company: s.opt.Svc.Cfg.Instance.Company, Title: title, Nav: true, Auth: s.auth != nil}
 }
 
 type indexData struct {
-	Page   page
-	Stats  pipeline.Stats
-	Review []store.Item
-	All    []store.Item
-	Outbox []router.OutboxEntry
-	Flash  string
+	Page    page
+	Pending bool
+	Stats   pipeline.Stats
+	Review  []store.Item
+	All     []store.Item
+	Outbox  []router.OutboxEntry
+	Flash   string
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	all, err := s.opt.Svc.List(ctx, store.Filter{})
+	ws := workspace(r)
+	all, err := s.opt.Svc.List(ctx, store.Filter{Workspace: ws})
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
 	var review []store.Item
+	pending := false
 	for _, it := range all {
 		if it.NeedsReview {
 			review = append(review, it)
 		}
+		if it.Status == store.StatusReceived && time.Since(it.CreatedAt) < 5*time.Minute {
+			pending = true
+		}
 	}
-	st, err := s.opt.Svc.Stats(ctx)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	ob, err := s.opt.Actions(ctx)
+	st := pipeline.ComputeStats(all)
+	ob, err := s.opt.Actions(ctx, ws)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -196,7 +211,11 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	for i, j := 0, len(all)-1; i < j; i, j = i+1, j-1 {
 		all[i], all[j] = all[j], all[i]
 	}
-	s.render(w, "index.html", indexData{Page: s.page("Review queue"), Stats: st, Review: review, All: all, Outbox: ob, Flash: r.URL.Query().Get("msg")})
+	p := s.page("Review queue")
+	if pending {
+		p.Refresh = 3 // tickets still being classified
+	}
+	s.render(w, "index.html", indexData{Page: p, Pending: pending, Stats: st, Review: review, All: all, Outbox: ob, Flash: r.URL.Query().Get("msg")})
 }
 
 type itemData struct {
@@ -209,8 +228,23 @@ type itemData struct {
 	Error      string
 }
 
+// getOwned loads an item only if it belongs to the caller's sandbox.
+func (s *Server) getOwned(r *http.Request, id string) (store.Item, error) {
+	it, err := s.opt.Svc.Get(r.Context(), id)
+	if err != nil {
+		return it, err
+	}
+	if it.Ticket.Workspace != workspace(r) && workspace(r) != "" {
+		return store.Item{}, fmt.Errorf("%w: %s", store.ErrNotFound, id)
+	}
+	if workspace(r) == "" && s.opt.Sandboxes {
+		return store.Item{}, fmt.Errorf("%w: %s", store.ErrNotFound, id)
+	}
+	return it, nil
+}
+
 func (s *Server) item(w http.ResponseWriter, r *http.Request) {
-	it, err := s.opt.Svc.Get(r.Context(), r.PathValue("id"))
+	it, err := s.getOwned(r, r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(w, r)
 		return
@@ -237,6 +271,10 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request) {
 		s.back(w, r, id, "", "reviewer name is required")
 		return
 	}
+	if _, err := s.getOwned(r, id); err != nil {
+		s.after(w, r, id, store.Item{}, err, "Approved")
+		return
+	}
 	it, err := s.opt.Svc.Approve(r.Context(), id, "dashboard:"+reviewer, r.FormValue("note"))
 	s.after(w, r, id, it, err, "Approved")
 }
@@ -246,6 +284,10 @@ func (s *Server) override(w http.ResponseWriter, r *http.Request) {
 	reviewer := strings.TrimSpace(r.FormValue("reviewer"))
 	if reviewer == "" {
 		s.back(w, r, id, "", "reviewer name is required")
+		return
+	}
+	if _, err := s.getOwned(r, id); err != nil {
+		s.after(w, r, id, store.Item{}, err, "Overridden")
 		return
 	}
 	it, err := s.opt.Svc.Override(r.Context(), id, "dashboard:"+reviewer, r.FormValue("category"), r.FormValue("priority"), r.FormValue("note"))

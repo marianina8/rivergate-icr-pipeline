@@ -1,5 +1,6 @@
 {{template "head" .Page}}
 {{if .Flash}}<p class="panel flash">{{.Flash}}</p>{{end}}
+{{if .Pending}}<p class="panel banner"><span class="spinner"></span> Some tickets are still being classified by the model — this page refreshes automatically.</p>{{end}}
 
 <div class="stats">
   <div class="panel stat"><b>{{.Stats.Total}}</b><span>tickets</span></div>

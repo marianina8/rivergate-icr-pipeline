@@ -60,6 +60,14 @@ to it with a rewrite in its `vercel.json`, so prospects use your domain:
 ```
 
 Every page requires the shared password (SSM `/rivergate-icr/dashboard-password`).
+**Each sign-in gets a private sandbox**: a fresh workspace seeded with the 10
+example tickets (classified by the worker on the spot). Visitors only ever see
+their own sandbox; tickets are tagged with the workspace, the session cookie
+carries it (signed, so it can't be swapped), and every page/action checks it.
+Sandbox items get an `expires_at` 24h out (`ICR_SANDBOX_TTL`): the app hides
+them immediately after that and DynamoDB TTL deletes them. Tickets sent through
+the webhook, S3 or CLI have no workspace; they don't expire and don't appear in
+any sandbox (see them with `icr status -store dynamo`).
 Sessions are signed cookies valid for 12 hours. Submitted tickets go through the
 real pipeline (SQS -> worker Lambda -> Bedrock); the result page refreshes itself
 until the classification lands, usually within a few seconds. Form posts are only

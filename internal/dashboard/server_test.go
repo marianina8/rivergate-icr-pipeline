@@ -282,7 +282,7 @@ func TestPasswordProtectsEveryPage(t *testing.T) {
 
 func TestSessionExpiry(t *testing.T) {
 	a := newAuth("pw", true)
-	tok, _ := a.token()
+	tok, _ := a.token("abc123")
 	if !a.valid(tok) {
 		t.Fatal("fresh token invalid")
 	}
@@ -335,5 +335,85 @@ func TestBasePathBehindProxy(t *testing.T) {
 	}
 	if rec := h.do(httptest.NewRequest(http.MethodGet, "/somewhere-else", nil)); rec.Code != http.StatusNotFound {
 		t.Errorf("paths outside the base should 404: %d", rec.Code)
+	}
+}
+
+// ---- sandboxes ----
+
+func login(t *testing.T, h harness, pw string) *http.Cookie {
+	t.Helper()
+	rec := h.do(postForm("/login", url.Values{"password": {pw}}, ""))
+	if rec.Code != http.StatusSeeOther || len(rec.Result().Cookies()) != 1 {
+		t.Fatalf("login = %d", rec.Code)
+	}
+	return rec.Result().Cookies()[0]
+}
+
+func sandboxHarness(t *testing.T) harness {
+	t.Helper()
+	base := setup(t, "", false)
+	s, err := New(Options{Svc: base.s.opt.Svc, Actions: AuditActions(base.s.opt.Svc), Password: "pw", Sandboxes: true,
+		Examples: base.s.opt.Examples, ProcessInline: base.s.opt.ProcessInline})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return harness{s: s, h: s.Handler(), p: base.p}
+}
+
+func TestSandboxesIsolateVisitors(t *testing.T) {
+	h := sandboxHarness(t)
+	alice, bob := login(t, h, "pw"), login(t, h, "pw")
+
+	// Each sandbox starts with its own 10 classified example tickets.
+	for name, c := range map[string]*http.Cookie{"alice": alice, "bob": bob} {
+		rec := h.do(httptest.NewRequest(http.MethodGet, "/", nil), c)
+		body := rec.Body.String()
+		if rec.Code != 200 || !strings.Contains(body, "Human review queue (4)") || !strings.Contains(body, "private sandbox") {
+			t.Errorf("%s: sandbox not seeded/labelled (code %d)", name, rec.Code)
+		}
+	}
+	all, _ := h.p.List(context.Background(), store.Filter{})
+	if len(all) != 20 {
+		t.Fatalf("want 10 seeded items per sandbox (20), got %d", len(all))
+	}
+
+	// Alice submits a ticket; Bob can't see, open or act on it.
+	form := url.Values{"mode": {"form"}, "channel": {"webform"}, "subject": {"Alice only"}, "message": {"Private question about our invoice and a refund."}}
+	rec := h.do(postForm("/submit", form, ""), alice)
+	loc := rec.Header().Get("Location")
+	id := strings.TrimPrefix(strings.SplitN(loc, "?", 2)[0], "/items/")
+	if rec.Code != http.StatusSeeOther || !strings.HasPrefix(id, "RG-") {
+		t.Fatalf("alice submit = %d %s", rec.Code, loc)
+	}
+	if rec := h.do(httptest.NewRequest(http.MethodGet, "/items/"+id, nil), alice); rec.Code != 200 {
+		t.Errorf("alice can't open her own ticket: %d", rec.Code)
+	}
+	if rec := h.do(httptest.NewRequest(http.MethodGet, "/items/"+id, nil), bob); rec.Code != http.StatusNotFound {
+		t.Errorf("bob opened alice's ticket: %d", rec.Code)
+	}
+	if rec := h.do(httptest.NewRequest(http.MethodGet, "/", nil), bob); strings.Contains(rec.Body.String(), "Alice only") || strings.Contains(rec.Body.String(), id) {
+		t.Error("alice's ticket visible in bob's queue")
+	}
+	if rec := h.do(postForm("/items/"+id+"/approve", url.Values{"reviewer": {"bob"}}, ""), bob); rec.Code != http.StatusNotFound {
+		t.Errorf("bob approved alice's ticket: %d", rec.Code)
+	}
+	it, _ := h.p.Get(context.Background(), id)
+	if it.Review != nil || it.ExpiresAt == nil || time.Until(*it.ExpiresAt) > 25*time.Hour {
+		t.Errorf("item should be untouched and expire within 24h: review=%v exp=%v", it.Review, it.ExpiresAt)
+	}
+
+	// A forged cookie that swaps in bob's workspace fails the signature check.
+	aws, _ := h.s.auth.parse(alice.Value)
+	bws, _ := h.s.auth.parse(bob.Value)
+	forged := &http.Cookie{Name: sessionCookie, Value: strings.Replace(bob.Value, "."+bws+".", "."+aws+".", 1)}
+	if rec := h.do(httptest.NewRequest(http.MethodGet, "/items/"+id, nil), forged); rec.Code != http.StatusSeeOther {
+		t.Errorf("forged workspace cookie accepted: %d", rec.Code)
+	}
+}
+
+func TestSandboxesRequirePassword(t *testing.T) {
+	base := setup(t, "", false)
+	if _, err := New(Options{Svc: base.s.opt.Svc, Actions: base.s.opt.Actions, Sandboxes: true}); err == nil {
+		t.Error("sandboxes without a password should be refused")
 	}
 }

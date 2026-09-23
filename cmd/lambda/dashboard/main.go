@@ -9,10 +9,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -62,6 +64,7 @@ func main() {
 	s, err := dashboard.New(dashboard.Options{
 		Svc: app.Svc, Actions: dashboard.AuditActions(app.Svc), Reviewer: "demo-reviewer",
 		Password: password, SecureCookie: true, Examples: examples,
+		Sandboxes: os.Getenv("ICR_DASHBOARD_SANDBOXES") == "true", SandboxTTL: humanTTL(os.Getenv("ICR_SANDBOX_TTL")),
 		BasePath: os.Getenv("ICR_DASHBOARD_BASE_PATH"), AllowedOrigins: origins, SiteURL: os.Getenv("ICR_DASHBOARD_SITE_URL"),
 	})
 	if err != nil {
@@ -69,4 +72,23 @@ func main() {
 		os.Exit(1)
 	}
 	lambda.Start(httplambda.Handler(s.Handler()))
+}
+
+// humanTTL turns "24h" into "24 hours" for the sandbox notice.
+func humanTTL(v string) string {
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return "24 hours"
+	}
+	if d%time.Hour == 0 {
+		h := int(d / time.Hour)
+		if h%24 == 0 && h > 24 {
+			return fmt.Sprintf("%d days", h/24)
+		}
+		if h == 1 {
+			return "1 hour"
+		}
+		return fmt.Sprintf("%d hours", h)
+	}
+	return d.String()
 }

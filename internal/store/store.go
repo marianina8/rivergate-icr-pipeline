@@ -43,6 +43,14 @@ type Item struct {
 	Events          []Event   `json:"events"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
+	// ExpiresAt, when set, is when the item stops existing (sandbox items).
+	// Stores hide expired items; DynamoDB TTL deletes them for real.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+// Expired reports whether the item is past its expiry.
+func (it Item) Expired(now time.Time) bool {
+	return it.ExpiresAt != nil && !now.Before(*it.ExpiresAt)
 }
 
 // Review records a human decision.
@@ -72,6 +80,8 @@ type Filter struct {
 	Status      Status
 	Queue       string
 	NeedsReview *bool
+	// Workspace limits results to one sandbox; "" means all workspaces.
+	Workspace string
 }
 
 // Store is the persistence contract. The DynamoDB implementation arrives in
@@ -89,6 +99,12 @@ func (it *Item) AddEvent(at time.Time, typ, actor, detail string, data map[strin
 }
 
 func (f Filter) match(it Item) bool {
+	if it.Expired(time.Now()) {
+		return false
+	}
+	if f.Workspace != "" && it.Ticket.Workspace != f.Workspace {
+		return false
+	}
 	if f.Status != "" && it.Status != f.Status {
 		return false
 	}

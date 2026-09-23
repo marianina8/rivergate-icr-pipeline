@@ -30,6 +30,7 @@ textarea { width:100%; min-height:220px; font:13px/1.45 ui-monospace, SFMono-Reg
 .row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
 @media (max-width:760px) { .row { grid-template-columns:1fr; } }
 .login { max-width:380px; margin:10vh auto; }
+.sandbox-bar { background:var(--chip); color:var(--muted); font-size:13px; padding:7px 24px; border-bottom:1px solid var(--line); }
 main { max-width:1180px; margin:0 auto; padding:20px 16px 48px; }
 h2 { font-size:16px; margin:28px 0 10px; }
 .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 16px; }
@@ -72,6 +73,7 @@ button.secondary { background:var(--chip); color:var(--ink); }
     {{if .Auth}}<form method="post" action="{{.Base}}/logout" class="inline"><button type="submit" class="linkish">Log out</button></form>{{end}}
   </nav>{{end}}
 </header>
+{{if and .Sandbox .Nav}}<div class="sandbox-bar">🔒 Your private sandbox — only you can see these tickets. Everything here is deleted automatically after {{.SandboxTTL}}; signing in again starts a fresh one.</div>{{end}}
 <main>
 {{end}}
 

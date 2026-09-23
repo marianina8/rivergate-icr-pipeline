@@ -58,6 +58,7 @@ Globals:
         ICR_CLASSIFIER: !Ref ClassifierProvider
         ICR_BEDROCK_MODEL_ID: !Ref BedrockInferenceProfileId
         ICR_CONFIG: config/rivergate.yaml
+        ICR_SANDBOX_TTL: 24h   # demo sandboxes (and everything in them) expire after this
 
 Resources:
   # ---------------------------------------------------------------- state
@@ -79,6 +80,11 @@ Resources:
           Projection: { ProjectionType: ALL }
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
+      # Sandbox items carry expires_at (epoch seconds); DynamoDB deletes them
+      # automatically. The app also hides expired items immediately.
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
       SSESpecification:
         SSEEnabled: true
       Tags:
@@ -239,6 +245,7 @@ Resources:
           ICR_DASHBOARD_BASE_PATH: /demos/rivergate
           ICR_DASHBOARD_ALLOWED_ORIGINS: !Ref DashboardAllowedOrigins
           ICR_EXAMPLES_DIR: demo/tickets
+          ICR_DASHBOARD_SANDBOXES: "true"   # every sign-in gets a private sandbox
           ICR_DASHBOARD_SITE_URL: /demos   # "About this demo" link back to marian.online
       Events:
         Root:

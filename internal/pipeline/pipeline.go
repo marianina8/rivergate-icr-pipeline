@@ -29,6 +29,8 @@ type Service struct {
 	Queue      ingest.Queue
 	Now        func() time.Time
 	Log        *slog.Logger
+	// SandboxTTL is how long items in a private workspace live (default 24h).
+	SandboxTTL time.Duration
 
 	mu sync.Mutex // serializes read-modify-write of items within one process
 }
@@ -58,10 +60,20 @@ func (s *Service) log() *slog.Logger {
 // Re-ingesting an identical ticket is a no-op (duplicate=true).
 // It satisfies ingest.Sink so the drop zone and webhook can call it directly.
 func (s *Service) Ingest(ctx context.Context, payload []byte, source string) (ingest.Ticket, bool, error) {
+	return s.IngestIn(ctx, "", payload, source)
+}
+
+// IngestIn is Ingest into a private workspace (sandbox). Items there are
+// invisible to other workspaces and expire after SandboxTTL.
+func (s *Service) IngestIn(ctx context.Context, workspace string, payload []byte, source string) (ingest.Ticket, bool, error) {
 	if s.Queue == nil {
 		return ingest.Ticket{}, false, errors.New("no queue configured")
 	}
-	t, dup, err := s.Accept(ctx, payload, source)
+	t, err := s.normalize(payload, source, workspace)
+	if err != nil {
+		return t, false, err
+	}
+	dup, err := s.accept(ctx, t, source)
 	if err != nil || dup {
 		return t, dup, err
 	}
@@ -76,25 +88,48 @@ func (s *Service) Ingest(ctx context.Context, payload []byte, source string) (in
 // enqueueing it. The AWS worker uses this for S3 drop-zone objects, whose
 // event notification already *is* the queue message.
 func (s *Service) Accept(ctx context.Context, payload []byte, source string) (ingest.Ticket, bool, error) {
+	t, err := s.normalize(payload, source, "")
+	if err != nil {
+		return t, false, err
+	}
+	dup, err := s.accept(ctx, t, source)
+	return t, dup, err
+}
+
+func (s *Service) normalize(payload []byte, source, workspace string) (ingest.Ticket, error) {
 	t, err := ingest.Normalize(payload, source, s.now())
 	if err != nil {
-		return ingest.Ticket{}, false, err
+		return ingest.Ticket{}, err
 	}
+	if workspace != "" {
+		t.Workspace = workspace
+		t.ID = ingest.TicketID(t)
+	}
+	return t, nil
+}
+
+func (s *Service) accept(ctx context.Context, t ingest.Ticket, source string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, err := s.Store.Get(ctx, t.ID); err == nil {
-		return t, true, nil
+		return true, nil
 	} else if !errors.Is(err, store.ErrNotFound) {
-		return t, false, err
+		return false, err
 	}
-	if err := s.Store.Put(ctx, newItem(t, s.now(), source)); err != nil {
-		return t, false, err
-	}
-	return t, false, nil
+	return false, s.Store.Put(ctx, s.newItem(t, source))
 }
 
-func newItem(t ingest.Ticket, now time.Time, actor string) store.Item {
+func (s *Service) newItem(t ingest.Ticket, actor string) store.Item {
+	now := s.now()
 	it := store.Item{ID: t.ID, Ticket: t, Status: store.StatusReceived, CreatedAt: now}
+	if t.Workspace != "" {
+		ttl := s.SandboxTTL
+		if ttl <= 0 {
+			ttl = 24 * time.Hour
+		}
+		exp := now.Add(ttl)
+		it.ExpiresAt = &exp
+	}
 	it.AddEvent(now, "received", actor, fmt.Sprintf("received via %s (%s)", t.Channel, t.Source), nil)
 	return it
 }
@@ -131,7 +166,7 @@ func (s *Service) Process(ctx context.Context, t ingest.Ticket, actor string) (s
 	defer s.mu.Unlock()
 	it, err := s.Store.Get(ctx, t.ID)
 	if errors.Is(err, store.ErrNotFound) {
-		it = newItem(t, s.now(), actor) // enqueued by another producer
+		it = s.newItem(t, actor) // enqueued by another producer
 	} else if err != nil {
 		return it, err
 	} else if it.Status != store.StatusReceived {
@@ -371,6 +406,11 @@ func (s *Service) Stats(ctx context.Context) (Stats, error) {
 	if err != nil {
 		return Stats{}, err
 	}
+	return ComputeStats(items), nil
+}
+
+// ComputeStats counts a set of items (e.g. one sandbox's).
+func ComputeStats(items []store.Item) Stats {
 	st := Stats{ByStatus: map[string]int{}, ByQueue: map[string]int{}}
 	for _, it := range items {
 		st.Total++
@@ -385,7 +425,7 @@ func (s *Service) Stats(ctx context.Context) (Stats, error) {
 			st.Automatic++
 		}
 	}
-	return st, nil
+	return st
 }
 
 func contains(xs []string, s string) bool {

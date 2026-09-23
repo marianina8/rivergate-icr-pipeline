@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -131,7 +132,14 @@ func New(ctx context.Context, o Options) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	var sandboxTTL time.Duration
+	if v := os.Getenv("ICR_SANDBOX_TTL"); v != "" {
+		if sandboxTTL, err = time.ParseDuration(v); err != nil {
+			return nil, fmt.Errorf("ICR_SANDBOX_TTL: %w", err)
+		}
+	}
 	svc := &pipeline.Service{
+		SandboxTTL: sandboxTTL,
 		Cfg:        cfg,
 		Classifier: cl,
 		Store:      &store.Dynamo{Client: dynamodb.NewFromConfig(awsCfg), Table: o.Table},

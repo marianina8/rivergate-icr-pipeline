@@ -35,7 +35,7 @@ pipeline:
 | 3 | Router rules engine + human-review dashboard (approve/override) | ✅ done |
 | 4 | MCP server: read tools always on, write tools opt-in and scoped | ✅ done |
 | 5 | Real AWS via SAM: Lambda handlers, DynamoDB store, SQS queue, Bedrock classifier | ✅ deployed (us-west-2). See [infra/README.md](infra/README.md) |
-| + | Hosted, password-protected demo UI: submit a ticket, watch it get classified and routed, review the queue | ✅ code done; served at `marian.online/demos/rivergate/` |
+| + | Hosted, password-protected demo UI: submit a ticket, watch it get classified and routed, review the queue. Each visitor gets a private sandbox that expires after 24h | ✅ served at `marian.online/demos/rivergate/` |
 
 Locally, everything runs with **zero AWS calls**: the default classifier is a
 deterministic keyword mock that stands in for Bedrock. Against AWS, the same

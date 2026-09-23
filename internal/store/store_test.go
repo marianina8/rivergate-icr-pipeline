@@ -59,6 +59,27 @@ func conformance(t *testing.T, s store.Store) {
 	if len(byQueue) != 1 {
 		t.Errorf("queue+status filter: %v", ids(byQueue))
 	}
+
+	// Sandbox items: scoped by workspace, invisible once expired.
+	future, past := time.Now().Add(time.Hour), time.Now().Add(-time.Minute)
+	live := store.Item{ID: "RG-WS1", Ticket: ingest.Ticket{ID: "RG-WS1", Workspace: "aa11", ReceivedAt: t0}, Status: store.StatusReceived, ExpiresAt: &future}
+	gone := store.Item{ID: "RG-WS2", Ticket: ingest.Ticket{ID: "RG-WS2", Workspace: "aa11", ReceivedAt: t0}, Status: store.StatusReceived, ExpiresAt: &past}
+	other := store.Item{ID: "RG-WS3", Ticket: ingest.Ticket{ID: "RG-WS3", Workspace: "bb22", ReceivedAt: t0}, Status: store.StatusReceived, ExpiresAt: &future}
+	for _, it := range []store.Item{live, gone, other} {
+		if err := s.Put(ctx, it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ws, _ := s.List(ctx, store.Filter{Workspace: "aa11"})
+	if len(ws) != 1 || ws[0].ID != "RG-WS1" {
+		t.Errorf("workspace filter / expiry: %v", ids(ws))
+	}
+	if _, err := s.Get(ctx, "RG-WS2"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("expired item still readable: %v", err)
+	}
+	if all, _ := s.List(ctx, store.Filter{}); len(all) != 4 {
+		t.Errorf("unfiltered list should include every live workspace: %v", ids(all))
+	}
 }
 
 func ids(items []store.Item) []string {

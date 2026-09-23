@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -46,7 +48,12 @@ func (d *Dynamo) Get(ctx context.Context, id string) (Item, error) {
 	if len(out.Item) == 0 {
 		return Item{}, fmt.Errorf("%w: %s", ErrNotFound, id)
 	}
-	return decodeDoc(out.Item)
+	it, err := decodeDoc(out.Item)
+	if err == nil && it.Expired(time.Now()) {
+		// DynamoDB TTL deletes lazily (within ~48h); treat as gone now.
+		return Item{}, fmt.Errorf("%w: %s", ErrNotFound, id)
+	}
+	return it, err
 }
 
 func (d *Dynamo) Put(ctx context.Context, it Item) error {
@@ -67,6 +74,13 @@ func (d *Dynamo) Put(ctx context.Context, it Item) error {
 	// GSI key attributes may not be empty strings; omit until routed.
 	if it.Queue != "" {
 		av["queue"] = &types.AttributeValueMemberS{Value: it.Queue}
+	}
+	if it.Ticket.Workspace != "" {
+		av["workspace"] = &types.AttributeValueMemberS{Value: it.Ticket.Workspace}
+	}
+	if it.ExpiresAt != nil {
+		// The table's TTL attribute (epoch seconds).
+		av["expires_at"] = &types.AttributeValueMemberN{Value: strconv.FormatInt(it.ExpiresAt.Unix(), 10)}
 	}
 	_, err = d.Client.PutItem(ctx, &dynamodb.PutItemInput{TableName: aws.String(d.Table), Item: av})
 	if err != nil {
@@ -99,9 +113,19 @@ func (d *Dynamo) List(ctx context.Context, f Filter) ([]Item, error) {
 			page, next = res.Items, res.LastEvaluatedKey
 		} else {
 			in := &dynamodb.ScanInput{TableName: aws.String(d.Table), ExclusiveStartKey: start}
+			var conds []string
+			vals := map[string]types.AttributeValue{}
 			if f.NeedsReview != nil {
-				in.FilterExpression = aws.String("needs_review = :r")
-				in.ExpressionAttributeValues = map[string]types.AttributeValue{":r": &types.AttributeValueMemberBOOL{Value: *f.NeedsReview}}
+				conds = append(conds, "needs_review = :r")
+				vals[":r"] = &types.AttributeValueMemberBOOL{Value: *f.NeedsReview}
+			}
+			if f.Workspace != "" {
+				conds = append(conds, "workspace = :w")
+				vals[":w"] = &types.AttributeValueMemberS{Value: f.Workspace}
+			}
+			if len(conds) > 0 {
+				in.FilterExpression = aws.String(strings.Join(conds, " AND "))
+				in.ExpressionAttributeValues = vals
 			}
 			res, err := d.Client.Scan(ctx, in)
 			if err != nil {

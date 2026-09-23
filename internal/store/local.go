@@ -3,12 +3,14 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Memory is an in-memory Store for tests.
@@ -24,7 +26,7 @@ func (m *Memory) Get(_ context.Context, id string) (Item, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	it, ok := m.items[id]
-	if !ok {
+	if !ok || it.Expired(time.Now()) {
 		return Item{}, fmt.Errorf("%w: %s", ErrNotFound, id)
 	}
 	return clone(it)
@@ -109,6 +111,9 @@ func (f *File) Get(_ context.Context, id string) (Item, error) {
 	if err := json.Unmarshal(b, &it); err != nil {
 		return Item{}, fmt.Errorf("decode %s: %w", id, err)
 	}
+	if it.Expired(time.Now()) {
+		return Item{}, fmt.Errorf("%w: %s", ErrNotFound, id)
+	}
 	return it, nil
 }
 
@@ -149,6 +154,9 @@ func (f *File) List(ctx context.Context, flt Filter) ([]Item, error) {
 			continue
 		}
 		it, err := f.Get(ctx, strings.TrimSuffix(name, ".json"))
+		if errors.Is(err, ErrNotFound) {
+			continue // expired
+		}
 		if err != nil {
 			return nil, err
 		}
