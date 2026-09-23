@@ -126,8 +126,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(400 * time.Millisecond) // slow down guessing
 		p := s.page("Sign in")
 		p.Nav = false
-		w.WriteHeader(http.StatusUnauthorized)
-		s.render(w, "login.html", loginData{Page: p, Next: next, Error: "That password isn't right."})
+		s.renderStatus(w, http.StatusUnauthorized, "login.html", loginData{Page: p, Next: next, Error: "That password isn't right."})
 		return
 	}
 	tok, exp := s.auth.token()

@@ -301,7 +301,14 @@ func securityHeaders(h http.Handler) http.Handler {
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, data any) {
+	s.renderStatus(w, http.StatusOK, name, data)
+}
+
+// renderStatus sets the Content-Type *before* the status line; headers set
+// after WriteHeader are dropped (API Gateway then shows the HTML as text).
+func (s *Server) renderStatus(w http.ResponseWriter, code int, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(code)
 	if err := s.tpl.ExecuteTemplate(w, name, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}

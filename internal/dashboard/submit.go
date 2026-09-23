@@ -114,13 +114,12 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) submitError(w http.ResponseWriter, r *http.Request, err error) {
-	w.WriteHeader(http.StatusBadRequest)
 	d := submitData{Page: s.page("Submit a ticket"), Examples: s.opt.Examples, JSON: r.FormValue("json"),
 		Error: "Couldn't submit that ticket: " + err.Error()}
 	if d.JSON == "" {
 		d.JSON = exampleSkeleton
 	}
-	s.render(w, "submit.html", d)
+	s.renderStatus(w, http.StatusBadRequest, "submit.html", d)
 }
 
 // submissionPayload turns the form into a raw channel payload: an uploaded

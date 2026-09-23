@@ -79,6 +79,11 @@ func FromRecorder(rec *httptest.ResponseRecorder) events.APIGatewayV2HTTPRespons
 		out.Headers[k] = strings.Join(vs, ", ")
 	}
 	b := rec.Body.Bytes()
+	if out.Headers["Content-Type"] == "" && len(b) > 0 {
+		// Belt and braces: net/http sniffs a missing Content-Type, the
+		// recorder doesn't, and API Gateway would otherwise send none.
+		out.Headers["Content-Type"] = http.DetectContentType(b)
+	}
 	if utf8.Valid(b) {
 		out.Body = string(b)
 	} else {
